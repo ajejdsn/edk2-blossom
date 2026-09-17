@@ -1,0 +1,35 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = Msdc0ProbeDxe
+  FILE_GUID                      = 3f8baf09-34cf-4d1b-9a6e-0a9d3e6c0f01
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = Msdc0ProbeEntry
+
+[Sources]
+  Msdc0ProbeDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  MT6765Pkg/MT6765Pkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  IoLib
+  PcdLib
+  UefiBootServicesTableLib
+  TimerLib
+
+[Protocols]
+  gEmbeddedMmcHostProtocolGuid
+
+[Pcd]
+  gMT6765PkgTokenSpaceGuid.PcdMsdc0Base
+
+[Depex]
+  TRUE

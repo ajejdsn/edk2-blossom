@@ -3,7 +3,7 @@
 set -e
 . build_common.sh
 ./build_bootshim.sh
-GCC5_AARCH64_PREFIX=aarch64-linux-gnu- build -j$(nproc) -s -n 0 -a AARCH64 -t GCC5 -p MT6765Pkg/Devices/roo.dsc
+GCC5_AARCH64_PREFIX=aarch64-linux-gnu- build -j$(nproc) -s -n 0 -a AARCH64 -t GCC5 -p MT6765Pkg/Devices/blossom.dsc
 cat BootShim/BootShim.bin workspace/Build/MT6765Pkg/DEBUG_GCC5/FV/MT6765PKG_UEFI.fd > workspace/UEFI
 gzip -f workspace/UEFI
 mkbootimg \

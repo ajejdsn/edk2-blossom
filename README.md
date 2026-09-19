@@ -1,11 +1,35 @@
 # Status
-Boots to UEFI Shell
 
-SimpleFbDxe works pretty smoothly
+Work in progress. Many things are broken. 
 
-UART works too, but for it, you must first disable FrameBufferSerialLib in MT6765Pkg.dsc
+## Main tasks:
+**MSDC0, MSDC1, Block IO working**;
 
-MSDC0 is under construction; CMD*(17,2, or 13) failure(may be), probably some clock/voltage failure
+**Custom** *`bootaa64.efi`* **booting from EMMC**;
+
+**Watchdog timer kicking properly**;
+
+# Features: 
+| Feature  | Status | Description |
+| ------------- | ------------- | ------------------------------ |
+| Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
+| SimpleFB |  Works | SimpleFBDxe works fine. |
+| Logging |  Partially | FrameBufferSerialLib works, but colors/ESC sequence is broken. |
+| EMMC |  Broken | WIP; CMD*(17,2, or 13) failure(may be), probably some clock/voltage failure. |
+| SDMMC |  Not Tested | MSDC1?... idk |
+| SPI |  Broken | SPI code/driver is missing. |
+| I2C |  Broken | Same as a SPI. |
+| Touchscreen | Broken | There are no NT36xxx/FT8006S driver right now. |
+| BDS | Works | `BdsDxe` works smoothly. |
+| UEFI Shell | Works | Boots into UEFI shell.
+| GPIO | ??? | Driver is missing. |
+| WDT | Broken | Watchdog timer is probably doesnt resets. Imma fix that. |
+| etc. | ??? | no drivers... -_-|
+
+
+
+
+
 
 # Building
 First, clone EDK2:

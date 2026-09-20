@@ -49,3 +49,5 @@
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp|32|UINT32|0x0000a403
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleWidth|1080|UINT32|0x0000a404
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleHeight|1920|UINT32|0x0000a405 
+  gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferStride|0|UINT32|0x0000a406
+  gMT6765PkgTokenSpaceGuid.PcdMsdc0Base|0x11230000|UINT64|0x0000a407

@@ -206,6 +206,7 @@
   #
   MT6765Pkg/Drivers/MT6765PkgDxe/MT6765PkgDxe.inf
   MT6765Pkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+  MT6765Pkg/Drivers/Msdc0ProbeDxe/Msdc0ProbeDxe.inf
   MT6765Pkg/Drivers/LogoDxe/LogoDxe.inf
 
   #
@@ -233,6 +234,7 @@
   # FAT filesystem + GPT/MBR partitioning
   #
   MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
   MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
   MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
   FatPkg/EnhancedFatDxe/Fat.inf

@@ -138,6 +138,7 @@ READ_LOCK_STATUS   = TRUE
   #
   INF MT6765Pkg/Drivers/MT6765PkgDxe/MT6765PkgDxe.inf
   INF MT6765Pkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+  INF MT6765Pkg/Drivers/Msdc0ProbeDxe/Msdc0ProbeDxe.inf
   INF MT6765Pkg/Drivers/LogoDxe/LogoDxe.inf
 
   #
@@ -164,6 +165,7 @@ READ_LOCK_STATUS   = TRUE
   # FAT filesystem + GPT/MBR partitioning
   #
   INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  INF EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
   INF MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
   INF FatPkg/EnhancedFatDxe/Fat.inf
   INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf

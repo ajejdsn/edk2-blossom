@@ -1,13 +1,10 @@
 # Status
 
-Work in progress. Many things are broken. 
-
+Work in progress. Many things is broken. <br>
 ## Main tasks:
-**MSDC0, MSDC1, Block IO working**;
-
-**Custom** *`bootaa64.efi`* **booting from EMMC**;
-
-**Watchdog timer kicking properly**;
+**MSDC0, MSDC1, Block IO working**; <br>
+**Custom** *`bootaa64.efi`* **booting from EMMC**; <br>
+**Watchdog timer kicking properly**; <br>
 
 # Features: 
 | Feature  | Status | Description |
@@ -37,10 +34,10 @@ First, clone EDK2:
 git clone https://github.com/tianocore/edk2 --recursive -b edk2-stable202302
 git clone https://github.com/tianocore/edk2-platforms.git
 ```
-First run `./firstrun.sh` <br>
-Then, `./build.sh` <br>
+First run `./firstrun.sh`; <br>
+Then, `./build.sh`  or `./baf.sh` for building and flasing;<br>
 This should make a boot-uefi.img to be flashed/booted via fastboot.
 
 # Credits
-[edk2-exynos7885](https://github.com/sonic011gamer/edk2-exynos7885/) - edk2-mt6765 based port
+[edk2-exynos7885](https://github.com/sonic011gamer/edk2-exynos7885/) - edk2-mt6765 based port <br>
 [edk2-mt6765](https://github.com/xiaomi-blossom-dev/edk2-mt6765) - forked

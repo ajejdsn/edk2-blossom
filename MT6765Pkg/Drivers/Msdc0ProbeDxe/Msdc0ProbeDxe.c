@@ -1,7 +1,7 @@
 /*
 Msdc0ProbeDxe.c
 modified
-Peace of log:
+Piece of log:
 InitializeMmcDevice(): Error in Identification Mode. Status=Device Error
 MmcTransferBlock(MMC_CMD65553): Error  Time Out
 MmcIoBlocks(): Failed to transfer block and Status: Time Out

@@ -11,8 +11,8 @@ Work in progress. Many things is broken. <br>
 | ------------- | ------------- | ------------------------------ |
 | Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
 | SimpleFB |  Works | SimpleFBDxe works fine. |
-| Logging |  Partially | FrameBufferSerialLib works, but colors/ESC sequence is broken. |
-| EMMC |  Broken | WIP; CMD*(17,2, or 13) failure(may be), probably some clock/voltage failure. |
+| Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
+| EMMC |  Broken | WIP; Read some logs below |
 | SDMMC |  Not Tested | MSDC1?... idk |
 | SPI |  Broken | SPI code/driver is missing. |
 | I2C |  Broken | Same as a SPI. |
@@ -25,7 +25,14 @@ Work in progress. Many things is broken. <br>
 
 
 
-
+### Latest problem
+Log: <br>
+```
+InitializeMmcDevice(): Error in Identification Mode. Status=Device Error
+MmcTransferBlock(MMC_CMD65553): Error  Time Out
+MmcIoBlocks(): Failed to transfer block and Status: Time Out
+MmcIoBlocks(): Failed to transfer block and Status: Device Error
+```
 
 
 # Building

@@ -1,11 +1,14 @@
 /*
 Msdc0ProbeDxe.c
-Version ???
+modified
+Peace of log:
+InitializeMmcDevice(): Error in Identification Mode. Status=Device Error
+MmcTransferBlock(MMC_CMD65553): Error  Time Out
+MmcIoBlocks(): Failed to transfer block and Status: Time Out
+MmcIoBlocks(): Failed to transfer block and Status: Device Error
 
-CMD failure
-
+purr~
 */
-
 
 #include <Uefi.h>
 
@@ -20,11 +23,7 @@ CMD failure
 #include <Protocol/MmcHost.h>
 
 
-//
-// ============================================================================
-// MT6765 MSDC0 register map
-// ============================================================================
-//
+// reg map
 
 #define MSDC_CFG              0x00
 #define MSDC_IOCON            0x04
@@ -67,25 +66,18 @@ CMD failure
 #define MSDC_CFG_CKMOD_MASK   0x00030000
 #define MSDC_CFG_CKSTB        BIT7
 
-#define MSDC_IDENT_CLK_DIV    17U   // ~382 kHz @ CKMOD=0, 26MHz src
+#define MSDC_IDENT_CLK_DIV    17U   
 
 
-//
-// ============================================================================
-// FIFO
-// ============================================================================
-//
+// fifo
+
 
 #define MSDC_FIFOCS_RXCNT     0x000000FF
 #define MSDC_FIFOCS_TXCNT     0x00FF0000
 #define MSDC_FIFOCS_CLR       BIT31
 
 
-//
-// ============================================================================
-// Interrupts
-// ============================================================================
-//
+// ints
 
 #define MSDC_INT_CMDRDY       BIT8
 #define MSDC_INT_CMDTMO       BIT9
@@ -95,70 +87,48 @@ CMD failure
 #define MSDC_INT_DATCRCERR    BIT15
 
 
-//
-// ============================================================================
-// SDC status
-// ============================================================================
-//
+// sdc
 
 #define SDC_STS_CMDBUSY       BIT1
 
 
-//
-// ============================================================================
-// SDC_CMD fields
-// ============================================================================
-//
+// sdc_cmd
 
 #define SDC_CMD_CMD_MASK      0x0000003F
-
 #define SDC_CMD_RSPTYP_MASK   0x00000380
 #define SDC_CMD_RSPTYP_SHIFT  7
-
 #define SDC_CMD_DTYPE_MASK    0x00001800
 #define SDC_CMD_DTYPE_SHIFT   11
-
 #define SDC_CMD_WR            BIT13
 #define SDC_CMD_STOP          BIT14
-
 #define SDC_CMD_BLK_LEN_MASK  0x0FFF0000
 #define SDC_CMD_BLK_LEN_SHIFT 16
 
 
-//
-// ============================================================================
-// Constants
-// ============================================================================
-//
+// consts
 
 #define MSDC_BLOCK_SIZE       512
 #define MSDC_TIMEOUT_US       1000000
 
 
-//
-// ============================================================================
-// Device path GUID
-// ============================================================================
-//
+// guid
 
 STATIC EFI_GUID mMsdc0DevicePathGuid = EFI_CALLER_ID_GUID;
 
 
-//
-// ============================================================================
-// Driver state
-// ============================================================================
-//
+// state
+
 
 STATIC UINTN  mMsdcBase;
 STATIC UINT32 mLastCommand;
+STATIC UINT32  mBlockLength = 512;
+STATIC BOOLEAN mEmmcReady = FALSE;
+STATIC UINT32  mEmmcCid[4] = {0};
+STATIC UINT32  mEmmcCsd[4] = {0};
 
 
-//
-// ============================================================================
-// MMIO
-// ============================================================================
-//
+// mmio
+
 
 STATIC
 UINT32
@@ -168,7 +138,6 @@ MsdcRead (
 {
   return MmioRead32 (mMsdcBase + Offset);
 }
-
 
 STATIC
 VOID
@@ -181,14 +150,8 @@ MsdcWrite (
 }
 
 
-//
-// ============================================================================
-// Wait for register condition
-//
-// NOTE: I teleported bread.
-//
-// ============================================================================
-//
+// wait for reg cond.
+
 
 STATIC
 BOOLEAN
@@ -200,23 +163,16 @@ MsdcWaitMask (
   )
 {
   while (TimeoutUs-- > 0) {
-
     if ((MsdcRead (Offset) & Mask) == Value) {
       return TRUE;
     }
-
     MicroSecondDelay (1);
   }
-
   return FALSE;
 }
 
 
-//
-// ============================================================================
-// Wait for interrupt
-// ============================================================================
-//
+// wait for int
 
 STATIC
 EFI_STATUS
@@ -230,14 +186,9 @@ MsdcWaitInterrupt (
   UINTN  Timeout;
 
   for (Timeout = 0; Timeout < MSDC_TIMEOUT_US; Timeout++) {
-
     IntStatus = MsdcRead (MSDC_INT);
 
     if ((IntStatus & (Wanted | ErrorMask)) != 0) {
-
-      //
-      // Clear only the bits we observed.
-      //
       MsdcWrite (MSDC_INT, IntStatus);
 
       if (InterruptStatus != NULL) {
@@ -245,35 +196,26 @@ MsdcWaitInterrupt (
       }
 
       if ((IntStatus & ErrorMask) != 0) {
-
         if ((IntStatus & (MSDC_INT_CMDTMO | MSDC_INT_DATTMO)) != 0) {
           return EFI_TIMEOUT;
         }
-
         return EFI_DEVICE_ERROR;
       }
-
       return EFI_SUCCESS;
     }
-
     MicroSecondDelay (1);
   }
 
   if (InterruptStatus != NULL) {
     *InterruptStatus = 0;
   }
-
   return EFI_TIMEOUT;
 }
 
 
-//
-// ============================================================================
-// Debug state
-// ============================================================================
-//
+// debug
 
-STATIC
+/*STATIC
 VOID
 MsdcDumpState (
   VOID
@@ -291,24 +233,10 @@ MsdcDumpState (
     MsdcRead (SDC_STS),
     MsdcRead (SDC_BLK_NUM)
     ));
-}
+}*/
 
 
-//
-// ============================================================================
-// MTK response encoding
-//
-// 0 = no response
-// 1 = R1/R5/R6/R7
-// 2 = R2
-// 3 = R3/R4
-// 7 = R1b
-//
-// IMPORTANT:
-// MMC_RESPONSE_TYPE_R1 == MMC_RESPONSE_TYPE_R1b in EDK2,
-// so R1b is identified from the command opcode here.
-// ============================================================================
-//
+// resp encoding
 
 STATIC
 UINT32
@@ -316,37 +244,17 @@ MsdcResponseType (
   IN MMC_CMD Cmd
   )
 {
-  UINT32 Opcode;
+  UINT32 Opcode = MMC_GET_INDX (Cmd);
 
-  Opcode = MMC_GET_INDX (Cmd);
+  if ((Cmd & MMC_CMD_WAIT_RESPONSE) == 0) return 0;
+  if ((Cmd & MMC_CMD_LONG_RESPONSE) != 0) return 2;
+  if ((Cmd & MMC_CMD_NO_CRC_RESPONSE) != 0) return 3;
 
-  if ((Cmd & MMC_CMD_WAIT_RESPONSE) == 0) {
-    return 0;
-  }
-
-  if ((Cmd & MMC_CMD_LONG_RESPONSE) != 0) {
-    return 2;
-  }
-
-  if ((Cmd & MMC_CMD_NO_CRC_RESPONSE) != 0) {
-    return 3;
-  }
-
-  //
-  // R1b commands.
-  //
-  if (Opcode == 6 ||
-	  Opcode == 7 ||
-      Opcode == 12 ||
-      Opcode == 28 ||
-      Opcode == 29
-	  ) {
+  if (Opcode == 6 || Opcode == 7 || Opcode == 12 || Opcode == 28 || Opcode == 29) {
     return 7;
   }
-
   return 1;
 }
-
 
 STATIC
 EFI_STATUS
@@ -364,34 +272,21 @@ MsdcApplyClock (
     Div = MSDC_IDENT_CLK_DIV;
   } else {
     Div = (26000000U + (BusClockHz * 4U) - 1U) / (BusClockHz * 4U);
-    if (Div == 0) {
-      Div = 1;
-    }
-    if (Div > 255U) {
-      Div = 255U;
-    }
+    if (Div == 0) Div = 1;
+    if (Div > 255U) Div = 255U;
   }
 
   Cfg |= (Div << 8);
-
   MsdcWrite (MSDC_CFG, Cfg);
 
   if (!MsdcWaitMask (MSDC_CFG, MSDC_CFG_CKSTB, MSDC_CFG_CKSTB, MSDC_TIMEOUT_US)) {
-    DEBUG ((DEBUG_ERROR, "MSDC0: CKSTB timeout, target=%u Hz Div=%u\n", BusClockHz, Div));
     return EFI_TIMEOUT;
   }
-
-  DEBUG ((DEBUG_INFO, "MSDC0: clock set target=%u Hz Div=%u CFG=%08x\n",
-    BusClockHz, Div, MsdcRead (MSDC_CFG)));
-
   return EFI_SUCCESS;
 }
 
-//
-// ============================================================================
-// Does this command have data?
-// ============================================================================
-//
+
+// comand has data?
 
 STATIC
 BOOLEAN
@@ -400,29 +295,15 @@ MsdcCommandHasData (
   )
 {
   switch (MMC_GET_INDX (Cmd)) {
-
-    case 8:
-    case 17:
-    case 18:
-    case 19:
-    case 21:
-    case 24:
-    case 25:
-    case 30:
-    case 51:
+    // CMD14 and CMD19 added
+    // bus width error without them
+    case 8: case 11: case 14: case 17: case 18: case 19: case 21:
+    case 24: case 25: case 30: case 51:
       return TRUE;
-
     default:
       return FALSE;
   }
 }
-
-
-//
-// ============================================================================
-// Is write command?
-// ============================================================================
-//
 
 STATIC
 BOOLEAN
@@ -431,87 +312,135 @@ MsdcCommandIsWrite (
   )
 {
   switch (MMC_GET_INDX (Cmd)) {
-
-    case 24:
-    case 25:
+    case 19: case 20: case 24: case 25: case 27:
       return TRUE;
-
     default:
       return FALSE;
   }
 }
 
 
-//
-// ============================================================================
-// Build MTK SDC_CMD
-// ============================================================================
-//
-
+// build sdc_cmd
 STATIC
 UINT32
 MsdcBuildRawCommand (
   IN MMC_CMD Cmd
   )
 {
-  UINT32 Opcode;
-  UINT32 RawCommand;
+  UINT32 Opcode = MMC_GET_INDX (Cmd);
+  UINT32 RawCommand = Opcode | (MsdcResponseType (Cmd) << SDC_CMD_RSPTYP_SHIFT);
 
-  Opcode = MMC_GET_INDX (Cmd);
-
-  RawCommand =
-    Opcode |
-    (MsdcResponseType (Cmd) << SDC_CMD_RSPTYP_SHIFT);
-
-  //
-  // Data command.
-  //
   if (MsdcCommandHasData (Cmd)) {
-
-    RawCommand |=
-      (MSDC_BLOCK_SIZE << SDC_CMD_BLK_LEN_SHIFT);
-
-    if (Opcode == 18 || Opcode == 25) {
-
-      RawCommand |=
-        (2 << SDC_CMD_DTYPE_SHIFT);
-
-    } else {
-
-      RawCommand |=
-        (1 << SDC_CMD_DTYPE_SHIFT);
+    UINT32 BlkLen = mBlockLength;
+    if (Opcode == 14 || Opcode == 19) {
+      UINT32 BusWidthCfg = (MsdcRead (SDC_CFG) & SDC_CFG_BUSWIDTH_MASK) >> 16;
+      if (BusWidthCfg == 1) BlkLen = 4;      // 4-bit mode
+      else if (BusWidthCfg == 2) BlkLen = 8; // 8-bit mode
+      else BlkLen = 1;                       // 1-bit mode
     }
 
+    RawCommand |= (BlkLen << SDC_CMD_BLK_LEN_SHIFT);
+    
+    if (Opcode == 18 || Opcode == 25) {
+      RawCommand |= (2 << SDC_CMD_DTYPE_SHIFT);
+    } else {
+      RawCommand |= (1 << SDC_CMD_DTYPE_SHIFT);
+    }
     if (MsdcCommandIsWrite (Cmd)) {
       RawCommand |= SDC_CMD_WR;
     }
   }
 
-  //
-  // CMD12.
-  //
   if (Opcode == 12) {
     RawCommand |= SDC_CMD_STOP;
   }
-
   return RawCommand;
 }
 
 
-//
-// ============================================================================
-// Send command
-//
-// NO CMD1 emulation.
-// NO CMD2 emulation.
-// NO fake RCA.
-// NO fake CMD13.
-//
-// MmcDxe owns MMC state.
-// MSDC only talks to hardware.
-// ============================================================================
-//
+// hw emmc init
+STATIC
+EFI_STATUS
+MsdcForceEmmcInit (VOID)
+{
+  UINT32 IntStatus, R0;
+  UINT32 Timeout = 1000;
 
+
+  DEBUG ((DEBUG_ERROR, "MSDC0: Hard resetting controller IP...\n"));
+
+  // controller rst
+  MsdcWrite (MSDC_CFG, MsdcRead (MSDC_CFG) | BIT2);
+  while ((MsdcRead (MSDC_CFG) & BIT2) != 0) {
+    MicroSecondDelay (10);
+  }
+  MsdcWrite (MSDC_PAD_TUNE, 0);
+  MsdcWrite (MSDC_PAD_TUNE0, 0);
+  MsdcWrite (MSDC_NEW_RX_CFG, 0);
+  // MsdcWrite (MSDC_IOCON, 0);
+  // buffer cleanup
+  MsdcWrite (MSDC_FIFOCS, MSDC_FIFOCS_CLR);
+  MsdcWrite (MSDC_INT, 0xFFFFFFFF);
+
+  MsdcApplyClock (400000);
+  MsdcWrite (SDC_CFG, MsdcRead (SDC_CFG) & ~SDC_CFG_BUSWIDTH_MASK);
+  MicroSecondDelay (10000);
+  #define SAFE_CMD(Arg, CmdRaw) \
+    MsdcWaitMask (SDC_STS, SDC_STS_CMDBUSY, 0, MSDC_TIMEOUT_US); \
+    MsdcWrite (MSDC_INT, 0xFFFFFFFF); \
+    MsdcWrite (SDC_ARG, Arg); \
+    MsdcWrite (SDC_CMD, CmdRaw);
+
+  // double warm reset
+  SAFE_CMD(0, 0 | (0 << SDC_CMD_RSPTYP_SHIFT));
+  MicroSecondDelay (2000);
+  SAFE_CMD(0, 0 | (0 << SDC_CMD_RSPTYP_SHIFT));
+  MicroSecondDelay (2000);
+
+  // CMD1
+  while (Timeout-- > 0) {
+    SAFE_CMD(0x40FF8080, 1 | (3 << SDC_CMD_RSPTYP_SHIFT)); // R3
+    MsdcWaitInterrupt (MSDC_INT_CMDRDY, MSDC_INT_CMDTMO, &IntStatus);
+    R0 = MsdcRead (SDC_RESP0);
+    if (R0 & BIT31) break; 
+    MicroSecondDelay (1000);
+  }
+
+  // get cid
+  SAFE_CMD(0, 2 | (2 << SDC_CMD_RSPTYP_SHIFT)); // R2
+  MsdcWaitInterrupt (MSDC_INT_CMDRDY, MSDC_INT_CMDTMO, &IntStatus);
+  mEmmcCid[0] = MsdcRead (SDC_RESP3);
+  mEmmcCid[1] = MsdcRead (SDC_RESP2);
+  mEmmcCid[2] = MsdcRead (SDC_RESP1);
+  mEmmcCid[3] = MsdcRead (SDC_RESP0);
+
+  // rca =1
+  SAFE_CMD(0x00010000, 3 | (1 << SDC_CMD_RSPTYP_SHIFT)); // R1
+  MsdcWaitInterrupt (MSDC_INT_CMDRDY, MSDC_INT_CMDTMO, &IntStatus);
+
+  // csd read
+  SAFE_CMD(0x00010000, 9 | (2 << SDC_CMD_RSPTYP_SHIFT)); // R2
+  MsdcWaitInterrupt (MSDC_INT_CMDRDY, MSDC_INT_CMDTMO, &IntStatus);
+  mEmmcCsd[0] = MsdcRead (SDC_RESP3);
+  mEmmcCsd[1] = MsdcRead (SDC_RESP2);
+  mEmmcCsd[2] = MsdcRead (SDC_RESP1);
+  mEmmcCsd[3] = MsdcRead (SDC_RESP0);
+
+  // TRAN
+  SAFE_CMD(0x00010000, 7 | (7 << SDC_CMD_RSPTYP_SHIFT)); // R1b
+  MsdcWaitInterrupt (MSDC_INT_CMDRDY, MSDC_INT_CMDTMO, &IntStatus);
+  
+  MsdcWaitMask (SDC_STS, SDC_STS_CMDBUSY, 0, MSDC_TIMEOUT_US);
+
+  #undef SAFE_CMD
+
+  mEmmcReady = TRUE;
+  DEBUG ((DEBUG_ERROR, "MSDC0: Hardware eMMC init complete by ProbeDxe! UwU\n"));
+  return EFI_SUCCESS;
+}
+
+
+// send cmd
 STATIC
 EFI_STATUS
 EFIAPI
@@ -525,208 +454,85 @@ MsdcSendCommand (
   UINT32     BlockCount;
   UINT32     RawCommand;
   UINT32     IntStatus;
+  UINT32     ErrorMask;
   EFI_STATUS Status;
 
   Opcode = MMC_GET_INDX (Cmd);
+  mLastCommand = Opcode;
 
-  DEBUG ((
-    DEBUG_INFO,
-    "MSDC0: CMD%u ARG=%08x MMC_CMD=%08x\n",
-    Opcode,
-    Argument,
-    Cmd
-    ));
+  if (Opcode == 16) {
+    mBlockLength = Argument;
+  }
 
-  //
-  // Clear stale interrupt status.
-  //
-  MsdcWrite (
-    MSDC_INT,
-    0xFFFFFFFF
-    );
-
-  //
-  // Wait for previous command.
-  //
-  if (!MsdcWaitMask (
-        SDC_STS,
-        SDC_STS_CMDBUSY,
-        0,
-        MSDC_TIMEOUT_US
-        )) {
-
-    DEBUG ((
-      DEBUG_ERROR,
-      "MSDC0: SDC_STS CMDBUSY timeout prior to CMD%u\n", // cmd2 is a REAL naughty boy
-      Opcode
-      ));
-// 	Default CMD* commands using R1 or R3.
-//  However, CMD2 Uses R2, and sends 136-bit CID.
-//  This shit causes buffer overflow, and FIFO fucked up.
-//  How? idk -_-
-//
-    MsdcDumpState ();
-
-    //
-    // Clear stale FIFO only if controller is stuck.
-    //
-    MsdcWrite (
-      MSDC_FIFOCS,
-      MSDC_FIFOCS_CLR
-      );
-
-    //
-    // Try one more time.
-    //
-    if (!MsdcWaitMask (
-           SDC_STS,
-           SDC_STS_CMDBUSY,
-           0,
-           MSDC_TIMEOUT_US
-           )) {
-
+  if (mEmmcReady) {
+    // sd cmds block
+    if (Opcode == 5 || Opcode == 51 || Opcode == 52 || Opcode == 53 || Opcode == 55 || Opcode == 41) {
       return EFI_TIMEOUT;
+    }
+    if (Opcode == 8 && Argument != 0) {
+      return EFI_TIMEOUT;
+    }
+
+    // bus test block
+    if (Opcode == 14 || Opcode == 19) {
+      return EFI_UNSUPPORTED;
+    }
+
+    // fake resp
+    switch (Opcode) {
+      case 0:
+      case 1:
+      case 2:
+      case 3:
+      case 9:
+      case 7:
+        return EFI_SUCCESS; 
     }
   }
 
-  //
-  // IMPORTANT:
-  // Always write SDC_BLK_NUM.
-  //
+  // bus was stuck? fuck it
+  if (!MsdcWaitMask (SDC_STS, SDC_STS_CMDBUSY | SDC_STS_CMDBUSY, 0, MSDC_TIMEOUT_US)) {
+    MsdcWrite (MSDC_CFG, MsdcRead (MSDC_CFG) | BIT2);
+    while ((MsdcRead (MSDC_CFG) & BIT2) != 0) { MicroSecondDelay(10); }
+    MsdcApplyClock (400000);
+  }
+
+  MsdcWrite (MSDC_INT, 0xFFFFFFFF);
+
   if (MsdcCommandHasData (Cmd)) {
     BlockCount = 1;
   } else {
     BlockCount = 0;
   }
 
-  MsdcWrite (
-    SDC_BLK_NUM,
-    BlockCount
-    );
-
-  //
-  // Clear FIFO before a data transfer.
-  //
-  if (BlockCount != 0) {
-    MsdcWrite (
-      MSDC_FIFOCS,
-      MSDC_FIFOCS_CLR
-      );
-  }
+  MsdcWrite (SDC_BLK_NUM, BlockCount);
+  MsdcWrite (MSDC_FIFOCS, MSDC_FIFOCS_CLR);
 
   RawCommand = MsdcBuildRawCommand (Cmd);
 
-  mLastCommand = Opcode;
+  MsdcWrite (SDC_ARG, Argument);
+  MsdcWrite (SDC_CMD, RawCommand);
 
-  DEBUG ((
-    DEBUG_INFO,
-    "MSDC0: CMD%u RAW=%08x BLK=%u CFG=%08x SDC_CFG=%08x\n",
-    Opcode,
-    RawCommand,
-    BlockCount,
-    MsdcRead (MSDC_CFG),
-    MsdcRead (SDC_CFG)
-    ));
-
-  //
-  // Argument.
-  //
-  MsdcWrite (
-    SDC_ARG,
-    Argument
-    );
-
-  //
-  // Command.
-  //
-  MsdcWrite (
-    SDC_CMD,
-    RawCommand
-    );
-
-  //
-  // Commands without response.
-  //
   if ((Cmd & MMC_CMD_WAIT_RESPONSE) == 0) {
-
-    if (!MsdcWaitMask (
-           SDC_STS,
-           SDC_STS_CMDBUSY,
-           0,
-           MSDC_TIMEOUT_US
-           )) {
-
-      DEBUG ((
-        DEBUG_ERROR,
-        "MSDC0: CMD%u no-response timeout\n",
-        Opcode
-        ));
-
-      MsdcDumpState ();
-
-      return EFI_TIMEOUT;
-    }
-
+    MsdcWaitMask (SDC_STS, SDC_STS_CMDBUSY, 0, MSDC_TIMEOUT_US);
     return EFI_SUCCESS;
   }
 
-  //
-  // Commands with response.
-  //
-  Status = MsdcWaitInterrupt (
-             MSDC_INT_CMDRDY,
-             MSDC_INT_CMDTMO | MSDC_INT_RSPCRCERR,
-             &IntStatus
-             );
+  // MSDC_INT_RSPCRCERR remove
+  ErrorMask = MSDC_INT_CMDTMO; 
 
+  Status = MsdcWaitInterrupt (MSDC_INT_CMDRDY, ErrorMask, &IntStatus);
   if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
-IntStatus = MsdcRead (MSDC_INT);
-
-if ((IntStatus & (MSDC_INT_CMDTMO |
-                  MSDC_INT_RSPCRCERR |
-                  MSDC_INT_CMDRDY)) != 0) {
-
-  DEBUG ((
-    DEBUG_ERROR,
-    "MSDC0: CMD%u INT=%08x STATUS=%r\n",
-    Opcode,
-    IntStatus,
-    (IntStatus & MSDC_INT_CMDTMO) ?
-      EFI_TIMEOUT :
-      ((IntStatus & MSDC_INT_RSPCRCERR) ?
-        EFI_CRC_ERROR : EFI_SUCCESS)
-    ));
-
-  DEBUG ((
-    DEBUG_ERROR,
-    "MSDC0: RESP RAW CMD%u: "
-    "R0=%08x R1=%08x R2=%08x R3=%08x\n",
-    Opcode,
-    MsdcRead (SDC_RESP0),
-    MsdcRead (SDC_RESP1),
-    MsdcRead (SDC_RESP2),
-    MsdcRead (SDC_RESP3)
-    ));
-}
- 
-
-  MsdcDumpState ();
-
-  return Status;
-}
-  //
-  // CMD6 needs a little time for card state transition.
-  //
-  if (Opcode == 6) {
-    MicroSecondDelay (1000);
+  if (Opcode == 6 || Opcode == 7 || Opcode == 28 || Opcode == 29) {
+    MsdcWaitMask (SDC_STS, SDC_STS_CMDBUSY, 0, MSDC_TIMEOUT_US * 2);
   }
 
   return EFI_SUCCESS;
 }
-
-
-
+// recv resp
 STATIC
 EFI_STATUS
 EFIAPI
@@ -736,13 +542,32 @@ MsdcReceiveResponse (
   OUT UINT32               *Buffer
   )
 {
-  UINT32 R0;
-  UINT32 R1;
-  UINT32 R2;
-  UINT32 R3;
+  UINT32 R0, R1, R2, R3;
 
-  if (Buffer == NULL) {
-    return EFI_INVALID_PARAMETER;
+  if (Buffer == NULL) return EFI_INVALID_PARAMETER;
+
+  if (mEmmcReady) {
+    switch (mLastCommand) {
+      case 1:
+        Buffer[0] = 0xC0FF8080;
+        return EFI_SUCCESS;
+      case 2:
+        Buffer[0] = mEmmcCid[0]; Buffer[1] = mEmmcCid[1];
+        Buffer[2] = mEmmcCid[2]; Buffer[3] = mEmmcCid[3];
+        return EFI_SUCCESS;
+      case 3:
+        Buffer[0] = 0x00010000;
+        return EFI_SUCCESS;
+      case 9:
+        Buffer[0] = mEmmcCsd[0]; Buffer[1] = mEmmcCsd[1];
+        Buffer[2] = mEmmcCsd[2]; Buffer[3] = mEmmcCsd[3];
+        return EFI_SUCCESS;
+      case 7:
+        Buffer[0] = (4 << 9); 
+        return EFI_SUCCESS;
+      case 0:
+        return EFI_SUCCESS;
+    }
   }
 
   R0 = MsdcRead (SDC_RESP0);
@@ -750,52 +575,20 @@ MsdcReceiveResponse (
   R2 = MsdcRead (SDC_RESP2);
   R3 = MsdcRead (SDC_RESP3);
 
-  DEBUG ((
-    DEBUG_ERROR,
-    "MSDC0: RESP RAW "
-    "R0=%08x R1=%08x R2=%08x R3=%08x type=%u cmd=%u\n",
-    R0,
-    R1,
-    R2,
-    R3,
-    Type,
-    mLastCommand
-    ));
-
   if (Type == MMC_RESPONSE_TYPE_R2) {
-
-    //
-    // MTK response register order.
-    //
     Buffer[0] = R3;
     Buffer[1] = R2;
     Buffer[2] = R1;
     Buffer[3] = R0;
-
-    DEBUG ((
-      DEBUG_ERROR,
-      "MSDC0: RESP R2 "
-      "%08x %08x %08x %08x\n",
-      Buffer[0],
-      Buffer[1],
-      Buffer[2],
-      Buffer[3]
-      ));
-
   } else {
-
     Buffer[0] = R0;
   }
 
   return EFI_SUCCESS;
 }
 
-//
-// ============================================================================
-// Read block data
-// ============================================================================
-//
 
+// r/w?...
 STATIC
 EFI_STATUS
 EFIAPI
@@ -811,90 +604,35 @@ MsdcReadBlockData (
   UINTN      Timeout;
   EFI_STATUS Status;
 
-  if (Buffer == NULL) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  if (Length == 0) {
-    return EFI_SUCCESS;
-  }
+  if (Buffer == NULL) return EFI_INVALID_PARAMETER;
+  if (Length == 0) return EFI_SUCCESS;
 
   Bytes = (UINT8 *)Buffer;
 
   while (Length > 0) {
-
     Timeout = MSDC_TIMEOUT_US;
-
-    while (
-      ((MsdcRead (MSDC_FIFOCS) & MSDC_FIFOCS_RXCNT) == 0) &&
-      ((MsdcRead (MSDC_INT) &
-        (MSDC_INT_XFER_COMPL |
-         MSDC_INT_DATTMO |
-         MSDC_INT_DATCRCERR)) == 0)
-      ) {
-
-      if (Timeout-- == 0) {
-        return EFI_TIMEOUT;
-      }
-
+    while (((MsdcRead (MSDC_FIFOCS) & MSDC_FIFOCS_RXCNT) == 0) &&
+           ((MsdcRead (MSDC_INT) & (MSDC_INT_XFER_COMPL | MSDC_INT_DATTMO | MSDC_INT_DATCRCERR)) == 0)) {
+      if (Timeout-- == 0) return EFI_TIMEOUT;
       MicroSecondDelay (1);
     }
 
-    while (
-      ((MsdcRead (MSDC_FIFOCS) & MSDC_FIFOCS_RXCNT) != 0) &&
-      (Length > 0)
-      ) {
-
+    while (((MsdcRead (MSDC_FIFOCS) & MSDC_FIFOCS_RXCNT) != 0) && (Length > 0)) {
       if (Length >= sizeof (UINT32)) {
-
         *(UINT32 *)Bytes = MsdcRead (MSDC_RXDATA);
-
         Bytes += sizeof (UINT32);
         Length -= sizeof (UINT32);
-
       } else {
-
-        UINT32 Word;
-
-        Word = MsdcRead (MSDC_RXDATA);
-
-        CopyMem (
-          Bytes,
-          &Word,
-          Length
-          );
-
+        UINT32 Word = MsdcRead (MSDC_RXDATA);
+        CopyMem (Bytes, &Word, Length);
         Length = 0;
       }
     }
   }
 
-  Status = MsdcWaitInterrupt (
-             MSDC_INT_XFER_COMPL,
-             MSDC_INT_DATTMO | MSDC_INT_DATCRCERR,
-             &IntStatus
-             );
-
-  if (EFI_ERROR (Status)) {
-
-    DEBUG ((
-      DEBUG_ERROR,
-      "MSDC0: CMD%u read failed INT=%08x STATUS=%r\n",
-      mLastCommand,
-      IntStatus,
-      Status
-      ));
-  }
-
+  Status = MsdcWaitInterrupt (MSDC_INT_XFER_COMPL, MSDC_INT_DATTMO | MSDC_INT_DATCRCERR, &IntStatus);
   return Status;
 }
-
-
-//
-// ============================================================================
-// Write block data
-// ============================================================================
-//
 
 STATIC
 EFI_STATUS
@@ -911,93 +649,37 @@ MsdcWriteBlockData (
   UINTN      Timeout;
   EFI_STATUS Status;
 
-  if (Buffer == NULL) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  if (Length == 0) {
-    return EFI_SUCCESS;
-  }
+  if (Buffer == NULL) return EFI_INVALID_PARAMETER;
+  if (Length == 0) return EFI_SUCCESS;
 
   Bytes = (UINT8 *)Buffer;
 
   while (Length > 0) {
-
     Timeout = MSDC_TIMEOUT_US;
-
-    while (
-      (((MsdcRead (MSDC_FIFOCS) & MSDC_FIFOCS_TXCNT) >> 16) >= 128) &&
-      ((MsdcRead (MSDC_INT) &
-        (MSDC_INT_XFER_COMPL |
-         MSDC_INT_DATTMO |
-         MSDC_INT_DATCRCERR)) == 0)
-      ) {
-
-      if (Timeout-- == 0) {
-        return EFI_TIMEOUT;
-      }
-
+    while ((((MsdcRead (MSDC_FIFOCS) & MSDC_FIFOCS_TXCNT) >> 16) >= 128) &&
+           ((MsdcRead (MSDC_INT) & (MSDC_INT_XFER_COMPL | MSDC_INT_DATTMO | MSDC_INT_DATCRCERR)) == 0)) {
+      if (Timeout-- == 0) return EFI_TIMEOUT;
       MicroSecondDelay (1);
     }
 
     if (Length >= sizeof (UINT32)) {
-
-      MsdcWrite (
-        MSDC_TXDATA,
-        *(UINT32 *)Bytes
-        );
-
+      MsdcWrite (MSDC_TXDATA, *(UINT32 *)Bytes);
       Bytes += sizeof (UINT32);
       Length -= sizeof (UINT32);
-
     } else {
-
-      UINT32 Word;
-
-      Word = 0;
-
-      CopyMem (
-        &Word,
-        Bytes,
-        Length
-        );
-
-      MsdcWrite (
-        MSDC_TXDATA,
-        Word
-        );
-
+      UINT32 Word = 0;
+      CopyMem (&Word, Bytes, Length);
+      MsdcWrite (MSDC_TXDATA, Word);
       Length = 0;
     }
   }
 
-  Status = MsdcWaitInterrupt (
-             MSDC_INT_XFER_COMPL,
-             MSDC_INT_DATTMO | MSDC_INT_DATCRCERR,
-             &IntStatus
-             );
-
-  if (EFI_ERROR (Status)) {
-
-    DEBUG ((
-      DEBUG_ERROR,
-      "MSDC0: CMD%u write failed INT=%08x STATUS=%r\n",
-      mLastCommand,
-      IntStatus,
-      Status
-      ));
-  }
-
+  Status = MsdcWaitInterrupt (MSDC_INT_XFER_COMPL, MSDC_INT_DATTMO | MSDC_INT_DATCRCERR, &IntStatus);
   return Status;
 }
 
 
-//
-// ============================================================================
-// Card presence
-// ============================================================================
-//
-
+// r/o
 STATIC
 BOOLEAN
 EFIAPI
@@ -1005,18 +687,8 @@ MsdcIsCardPresent (
   IN EFI_MMC_HOST_PROTOCOL *This
   )
 {
-  //
-  // eMMC is soldered down.
-  //
   return TRUE;
 }
-
-
-//
-// ============================================================================
-// Read-only
-// ============================================================================
-//
 
 STATIC
 BOOLEAN
@@ -1029,12 +701,7 @@ MsdcIsReadOnly (
 }
 
 
-//
-// ============================================================================
-// Device path
-// ============================================================================
-//
-
+// device path
 STATIC
 EFI_STATUS
 EFIAPI
@@ -1045,48 +712,19 @@ MsdcBuildDevicePath (
 {
   VENDOR_DEVICE_PATH *Node;
 
-  if (DevicePath == NULL) {
-    return EFI_INVALID_PARAMETER;
-  }
+  if (DevicePath == NULL) return EFI_INVALID_PARAMETER;
 
-  Node = (VENDOR_DEVICE_PATH *)CreateDeviceNode (
-                                 HARDWARE_DEVICE_PATH,
-                                 HW_VENDOR_DP,
-                                 sizeof (VENDOR_DEVICE_PATH)
-                                 );
+  Node = (VENDOR_DEVICE_PATH *)CreateDeviceNode (HARDWARE_DEVICE_PATH, HW_VENDOR_DP, sizeof (VENDOR_DEVICE_PATH));
+  if (Node == NULL) return EFI_OUT_OF_RESOURCES;
 
-  if (Node == NULL) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  CopyGuid (
-    &Node->Guid,
-    &mMsdc0DevicePathGuid
-    );
-
+  CopyGuid (&Node->Guid, &mMsdc0DevicePathGuid);
   *DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)Node;
 
   return EFI_SUCCESS;
 }
 
 
-//
-// ============================================================================
-// NotifyState
-//
-// IMPORTANT:
-// 1)Do not reset MSDC here.
-// 2)Do not touch clock.
-// 3)Do not touch SDC_CFG.
-// 4)Do not touch MSDC_CFG.
-// 5)Do not talk about Fight Club. 
-// 6)DO NOT talk about Fight Club.
-// 
-//
-// LK/preloader handoff is preserved.
-// ============================================================================
-//
-
+// notify state
 STATIC
 EFI_STATUS
 EFIAPI
@@ -1095,35 +733,12 @@ MsdcNotifyState (
   IN MMC_STATE             State
   )
 {
-  if (State == MmcHwInitializationState) {
-
-    UINT32 Cfg;
-
-    //
-    // CMD0 (issued right after this state) forces the card back to
-    // Idle State / open-drain identification mode, regardless of
-    // whatever high-speed configuration LK left the bus in.  The
-    // host controller must match that or CRC-checked / timed
-    // responses (CMD2, CMD13, ...) will simply never come back.
-    //
-
-    MsdcApplyClock (0);   // 0 => identification clock
-
-    Cfg  = MsdcRead (SDC_CFG);
-    Cfg &= ~SDC_CFG_BUSWIDTH_MASK;   // back to 1-bit for identification
-    MsdcWrite (SDC_CFG, Cfg);
-
-    DEBUG ((DEBUG_INFO,
-      "MSDC0: forced identification mode CFG=%08x SDC_CFG=%08x\n",
-      MsdcRead (MSDC_CFG), MsdcRead (SDC_CFG)));
-  }
-
+  // make MmcDxe to not reset emmc
   return EFI_SUCCESS;
 }
 
 
-
-
+// setios
 STATIC
 EFI_STATUS
 EFIAPI
@@ -1136,9 +751,6 @@ MsdcSetIos (
 {
   UINT32 Cfg;
 
-  DEBUG ((DEBUG_INFO, "MSDC0: SetIos freq=%u width=%u timing=%u\n",
-    BusClockFreq, BusWidth, TimingMode));
-
   Cfg = MsdcRead (SDC_CFG);
   Cfg &= ~SDC_CFG_BUSWIDTH_MASK;
 
@@ -1146,29 +758,18 @@ MsdcSetIos (
     case 1: break;
     case 4: Cfg |= (1U << 16); break;
     case 8: Cfg |= (2U << 16); break;
-    default:
-      return EFI_INVALID_PARAMETER;
+    default: return EFI_INVALID_PARAMETER;
   }
 
   MsdcWrite (SDC_CFG, Cfg);
 
   if (BusClockFreq > 26000000U) {
-  DEBUG ((DEBUG_ERROR, "MSDC0: SetIos freq=%u clamp to 26MHz (HS200/400 not implemented)\n", BusClockFreq));
-  BusClockFreq = 26000000U; // purr~
-}
+    BusClockFreq = 26000000U;
+  }
 
   return MsdcApplyClock (BusClockFreq);
 }
 
-
-//
-// ============================================================================
-// Multiblock
-//
-// FALSE deliberately.
-// This makes stock MmcDxe BlockIo prefer CMD17/CMD24.
-// ============================================================================
-//
 
 STATIC
 BOOLEAN
@@ -1181,38 +782,23 @@ MsdcIsMultiBlock (
 }
 
 
-//
-// ============================================================================
-// EFI_MMC_HOST_PROTOCOL
-// ============================================================================
-//
-
+//efi_emmc_host_protocol
 STATIC EFI_MMC_HOST_PROTOCOL mMsdcHost = {
   MMC_HOST_PROTOCOL_REVISION,
-
   MsdcIsCardPresent,
   MsdcIsReadOnly,
   MsdcBuildDevicePath,
-
   MsdcNotifyState,
-
   MsdcSendCommand,
   MsdcReceiveResponse,
-
   MsdcReadBlockData,
   MsdcWriteBlockData,
-
   MsdcSetIos,
   MsdcIsMultiBlock
 };
 
 
-// 
-// ============================================================================
-// Entry point
-// ============================================================================
-//
-
+// entry
 EFI_STATUS
 EFIAPI
 Msdc0ProbeEntry (
@@ -1221,61 +807,16 @@ Msdc0ProbeEntry (
   )
 {
   EFI_STATUS Status;
-
-  //
-  // FIRST LOG.
-  // If this does not appear, the driver itself is not dispatched.
-  //
-  DEBUG ((
-    DEBUG_ERROR,
-    "MSDC0: >>> ENTRY <<<\n"
-    ));
-
-  //
-  // This is the PCD form already used by your original driver.
-  //
-  mMsdcBase = (UINTN)FixedPcdGet64 (
-                         PcdMsdc0Base
-                         );
-
-  DEBUG ((
-    DEBUG_ERROR,
-    "MSDC0: BASE=%lx\n",
-    (UINT64)mMsdcBase
-    ));
-
+  DEBUG ((DEBUG_ERROR, "MSDC0: >>> ENTRY >=D <<<\n"));
+  mMsdcBase = (UINTN)FixedPcdGet64 (PcdMsdc0Base);
+  DEBUG ((DEBUG_ERROR, "MSDC0: BASE=%lx\n", (UINT64)mMsdcBase));
   if (mMsdcBase == 0) {
-
-    DEBUG ((
-      DEBUG_ERROR,
-      "MSDC0: BASE IS ZERO\n"
-      ));
-
+    DEBUG ((DEBUG_ERROR, "MSDC0: BASE IS ZERO\n"));
     return EFI_NOT_FOUND;
   }
+  // hard init, bypass MmcDxe
+  MsdcForceEmmcInit ();
 
-  //
-  // Read-only diagnostic.
-  // No controller initialization.
-  //
-  DEBUG ((
-    DEBUG_ERROR,
-    "MSDC0: BEFORE INSTALL "
-    "CFG=%08x "
-    "SDC_CFG=%08x "
-    "INT=%08x "
-    "BLK=%08x\n",
-    MsdcRead (MSDC_CFG),
-    MsdcRead (SDC_CFG),
-    MsdcRead (MSDC_INT),
-    MsdcRead (SDC_BLK_NUM)
-    ));
-
-  //
-  // Install ONLY the MMC host protocol.
-  //
-  // MmcDxe will consume this protocol.
-  //
   Status = gBS->InstallMultipleProtocolInterfaces (
                   &ImageHandle,
                   &gEmbeddedMmcHostProtocolGuid,
@@ -1284,38 +825,11 @@ Msdc0ProbeEntry (
                   );
 
   if (EFI_ERROR (Status)) {
-
-    DEBUG ((
-      DEBUG_ERROR,
-      "MSDC0: failed to install MMC host protocol: %r\n",
-      Status
-      ));
-
+    DEBUG ((DEBUG_ERROR, "MSDC0: failed to install MMC host protocol: %r\n", Status));
     return Status;
   }
 
-  DEBUG ((
-    DEBUG_ERROR,
-    "MSDC0: >>> HOST READY <<<\n"
-    ));
-
-  DEBUG ((
-    DEBUG_ERROR,
-    "MSDC0: AFTER INSTALL "
-    "CFG=%08x "
-    "SDC_CFG=%08x "
-    "INT=%08x "
-    "BLK=%08x\n",
-    MsdcRead (MSDC_CFG),
-    MsdcRead (SDC_CFG),
-    MsdcRead (MSDC_INT),
-    MsdcRead (SDC_BLK_NUM)
-    ));
+  DEBUG ((DEBUG_ERROR, "MSDC0: >>> HOST READY <<<\n"));
 
   return EFI_SUCCESS;
 }
-
-
-
-// WAIT!!!
-// 1300+ CODE LINES?!! @.@

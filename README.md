@@ -20,7 +20,7 @@ Work in progress. Many things is broken. <br>
 | BDS | Works | `BdsDxe` works smoothly. |
 | UEFI Shell | Works | Boots into UEFI shell.
 | GPIO | ??? | Driver is missing. |
-| WDT | Broken | Watchdog timer is probably doesnt resets. Imma fix that. |
+| WDT | WIP | Working at WDT disable/reset, can't find proper address |
 | SMBIOS | Works | SMBIOS tables succesful creating |
 | etc. | ??? | no drivers... -_-|
 
@@ -55,3 +55,8 @@ This should make a boot-uefi.img to be flashed/booted via fastboot.
 # Credits
 [edk2-exynos7885](https://github.com/sonic011gamer/edk2-exynos7885/) - edk2-mt6765 based port <br>
 [edk2-mt6765](https://github.com/xiaomi-blossom-dev/edk2-mt6765) - forked
+
+
+### Feedback:<br>
+[EMAIL](mailto:emilermekov@national.shitposting.agency)<br>
+[Telegram](https://t.me/thiscoolworld)<br>

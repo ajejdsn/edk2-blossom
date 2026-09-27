@@ -13,7 +13,7 @@ Work in progress. Many things is broken. <br>
 | Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
 | SimpleFB |  Works | SimpleFBDxe works fine. |
 | Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
-| EMMC |  Partially | WIP; Read some logs below |
+| EMMC |  Partially | WIP; Read some logs below; Works at 50MHz 8-bit SDR; |
 | SDMMC |  Not Tested | MSDC1?... idk |
 | SPI |  Broken | SPI code/driver is missing. |
 | I2C |  Broken | Same as a SPI. |

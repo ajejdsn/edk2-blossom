@@ -20,9 +20,11 @@ Work in progress. Many things is broken. <br>
 | Touchscreen | Broken | There are no NT36xxx/FT8006S driver right now. |
 | BDS | Works | `BdsDxe` works smoothly. |
 | UEFI Shell | Works | Boots into UEFI shell.
-| GPIO | ??? | Driver is missing. |
+| GPIO | Broken | Driver is missing. |
 | WDT | Works | WDT is turned off right now. |
 | SMBIOS | Works | SMBIOS tables succesful creating |
+| GIC/INTS | ??? | MT6762G uses GICv3, and we can make this thing work, but... |
+| SYSIRQ | Broken | ...This SoC has proprietary SYSIRQ Interrupt controller, idk what can I do... >_< |
 | etc. | ??? | no drivers... -_-|
 
 

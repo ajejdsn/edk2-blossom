@@ -2,9 +2,10 @@
 
 Work in progress. Many things is broken. <br>
 ## Main tasks:
-**MSDC0, MSDC1, Block IO working**; <br>
+**~~MSDC0~~, MSDC1, Block IO working**; <br>
+**ACPI Tables**<br>
 **Custom** *`bootaa64.efi`* **booting from EMMC**; <br>
-**Watchdog timer kicking properly**; <br>
+~~**Watchdog timer kicking/turning off properly**;~~ <br>
 
 # Features: 
 | Feature  | Status | Description |
@@ -20,7 +21,7 @@ Work in progress. Many things is broken. <br>
 | BDS | Works | `BdsDxe` works smoothly. |
 | UEFI Shell | Works | Boots into UEFI shell.
 | GPIO | ??? | Driver is missing. |
-| WDT | WIP | Working at WDT disable/reset, can't find proper address |
+| WDT | Works | WDT is turned off right now. |
 | SMBIOS | Works | SMBIOS tables succesful creating |
 | etc. | ??? | no drivers... -_-|
 

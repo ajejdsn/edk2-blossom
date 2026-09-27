@@ -49,7 +49,7 @@ This should make a boot-uefi.img to be flashed/booted via fastboot.
 # Notes
 * RTFM;
 * KISS;
-* DO NOT fake RCA/Response/CMD.
+* DO NOT fake RCA/Response/CMD. (except multi-block operation emulation)
 
 # Credits
 [edk2-exynos7885](https://github.com/sonic011gamer/edk2-exynos7885/) - edk2-mt6765 <br>

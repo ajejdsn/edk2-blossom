@@ -27,6 +27,13 @@ VOID EFIAPI ProcessLibraryConstructorList(VOID);
 char* uart_reg0 = (char*)0x11002000;
 char* uart_reg1 = (char*)0x11002014;
 
+volatile UINT32* wdt_reg = (volatile UINT32*)0x10007000;
+
+VOID DisableWDT()
+{
+  *wdt_reg = 0x22000000;
+}
+
 void PrintUart(char* str) {
     char c = str[0];
     int i = 0;
@@ -44,7 +51,9 @@ VOID UartInit(VOID)
   SerialPortInitialize();
   //PrintUart("SerialPort initialized\r\n");
 
-  DEBUG((EFI_D_INFO, "\nEDK II on Memetek MT6765 (AArch64)\n"));
+  DEBUG((EFI_D_INFO, "\nEDK II on Memetek MT6765 OwO(AArch64)\n"));
+  DEBUG((EFI_D_INFO, "Device: xiaomi-blossom\n"));
+  DEBUG((EFI_D_INFO, "\nhttps://github.com/ajejdsn/edk2-blossom\n"));
   DEBUG(
       (EFI_D_INFO, "Firmware version %s built %a %a\n\n",
        (CHAR16 *)PcdGetPtr(PcdFirmwareVersionString), __TIME__, __DATE__));
@@ -136,5 +145,6 @@ VOID
 CEntryPoint ()
 {
   UartInit();
+  DisableWDT();
   Main(0);
 }

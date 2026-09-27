@@ -54,9 +54,9 @@ This should make a boot-uefi.img to be flashed/booted via fastboot.
 * DO NOT fake RCA/Response/CMD.
 
 # Credits
-[edk2-exynos7885](https://github.com/sonic011gamer/edk2-exynos7885/) - edk2-mt6765 based port <br>
-[edk2-mt6765](https://github.com/xiaomi-blossom-dev/edk2-mt6765) - forked
-
+[edk2-exynos7885](https://github.com/sonic011gamer/edk2-exynos7885/) - edk2-mt6765 <br>
+[edk2-mt6765](https://github.com/xiaomi-blossom-dev/edk2-mt6765) - forked <br>
+[edk2-mtk](https://github.com/linux-mediatek/edk2-mtk) - idea source, WDT turn off code
 
 ### Feedback:<br>
 [EMAIL](mailto:emilermekov@national.shitposting.agency)<br>

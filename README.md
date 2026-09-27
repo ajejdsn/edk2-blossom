@@ -1,11 +1,14 @@
 # Status
 
 Work in progress. Many things is broken. <br>
-## Main tasks:
-**~~MSDC0~~, MSDC1, Block IO working**; <br>
-**ACPI Tables**<br>
-**Custom** *`bootaa64.efi`* **booting from EMMC**; <br>
-~~**Watchdog timer kicking/turning off properly**;~~ <br>
+## Main tasks/TODO:
+- **~~MSDC0~~, MSDC1, ~~Block IO~~ working**; <br>
+- **ACPI Tables**;<br>
+- Make GIC, SPI/SMBus work.;<br>
+- Make BDS see anything else except FAT
+- Make GPIO buttons works as the keyboard arrow keys in a early state
+- **Custom** *`bootaa64.efi`* **booting from EMMC**(not tested); <br>
+- ~~**Watchdog timer kicking/turning off properly**;~~ <br>
 
 # Features: 
 | Feature  | Status | Description |
@@ -13,13 +16,13 @@ Work in progress. Many things is broken. <br>
 | Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
 | SimpleFB |  Works | SimpleFBDxe works fine. |
 | Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
-| EMMC |  Partially | WIP; Read some logs below; Works at 50MHz 8-bit SDR; |
+| EMMC |  Works | Works at 50MHz 8-bit SDR; DDR is broken |
 | SDMMC |  Not Tested | MSDC1?... idk |
 | SPI |  Broken | SPI code/driver is missing. |
 | I2C |  Broken | Same as a SPI. |
 | Touchscreen | Broken | There are no NT36xxx/FT8006S driver right now. |
 | BDS | Works | `BdsDxe` works smoothly. |
-| UEFI Shell | Works | Boots into UEFI shell.
+| UEFI Shell | Works | Boots into UEFI shell. |
 | GPIO | Broken | Driver is missing. |
 | WDT | Works | WDT is turned off right now. |
 | SMBIOS | Works | SMBIOS tables succesful creating |
@@ -29,16 +32,9 @@ Work in progress. Many things is broken. <br>
 
 
 
-### Latest problem
-Now it initializes eMMC, reads CID/EXT_CSD properly, and even can read LBA0-LBA2, but I gotta problem with LBA3.<br>
-It has zero length, and, probably everything is fucked up because of that.<br>
-Also, MmcDxe is trying to send CMD65554, probably some bug that I need to fix.<br>
-Log: <br>
-```
-CMD18 ARG=00000003 RAW=02000892
-CMD18 timeout
-MSDC0 cmd-timeout-pending: CFG=00000299 IOCON=00000010 PS=81000002 INT=00000200 INTEN=0000B700 FIFO=00000080 SDC_CFG=09020000 SDC_STS=00100000 PB0=403C0007 PB1=FFFA4340 PB2=3489180B CMD=02000892 ARG=00000003
-```
+### Latest problems
+EMMC DDR is broken. Not gonna fix it cuz idc.
+
 
 # Building
 First, clone EDK2:

@@ -4,7 +4,7 @@
   FILE_GUID                      = 3f8baf09-34cf-4d1b-9a6e-0a9d3e6c0f01
   MODULE_TYPE                    = DXE_DRIVER
   VERSION_STRING                 = 1.0
-  ENTRY_POINT                    = Msdc0ProbeEntry
+  ENTRY_POINT                    = Msdc0EntryPoint
 
 [Sources]
   Msdc0ProbeDxe.c
@@ -27,6 +27,7 @@
 
 [Protocols]
   gEmbeddedMmcHostProtocolGuid
+
 
 [Pcd]
   gMT6765PkgTokenSpaceGuid.PcdMsdc0Base

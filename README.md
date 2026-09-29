@@ -1,13 +1,16 @@
 # Status
 
 Work in progress. Many things is broken. <br>
+It can boot image from *`\EFI\BOOT\BOOTAA64.efi`* in a FAT partiton(FAT32 tested), but it doesn't takes any sence right now;<br>
+
 ## Main tasks/TODO:
 - **~~MSDC0~~, MSDC1, ~~Block IO~~ working**; <br>
 - **ACPI Tables**;<br>
 - Make GIC, SPI/SMBus work.;<br>
+- Fix the memory allocation/Memory Map<br>
 - Make BDS see anything else except FAT
 - Make GPIO buttons works as the keyboard arrow keys in a early state
-- **Custom** *`bootaa64.efi`* **booting from EMMC**(not tested); <br>
+- ~~**Custom** *`bootaa64.efi`* **booting from EMMC**(TESTED);~~ <br>
 - ~~**Watchdog timer kicking/turning off properly**;~~ <br>
 
 # Features: 
@@ -17,6 +20,7 @@ Work in progress. Many things is broken. <br>
 | SimpleFB |  Works | SimpleFBDxe works fine. |
 | Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
 | EMMC |  Works | Works at 50MHz 8-bit SDR; DDR is broken |
+| Memory Map | ??? | Memory allocation function is broken, I guess.(see some logs below) |
 | SDMMC |  Not Tested | MSDC1?... idk |
 | SPI |  Broken | SPI code/driver is missing. |
 | I2C |  Broken | Same as a SPI. |
@@ -32,9 +36,16 @@ Work in progress. Many things is broken. <br>
 
 
 
-### Latest problems
-EMMC DDR is broken. Not gonna fix it cuz idc.
-
+### Issues
+EMMC DDR is broken. Not gonna fix it cuz idc.<br>
+There are memory allocation failure/FDT transfer issue. GRUB/EDKII log parts:
+```
+Error: Image at 0004EC660000 start failed: Out of resources
+error: invalid device tree.
+EFI stub: ERROR: Failed to relocate kernel
+EFI stub: ERROR: Failed to relocate kernel
+Failed to boot both default and fallback entries.
+```
 
 # Building
 First, clone EDK2:

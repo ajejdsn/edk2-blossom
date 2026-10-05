@@ -9,6 +9,7 @@ It can boot image from *`\EFI\BOOT\BOOTAA64.efi`* in a FAT partiton(FAT32 tested
 - Make GIC, SPI/SMBus work.;<br>
 - Fix the memory allocation/Memory Map<br>
 - Make BDS see anything else except FAT
+- Fix GOP
 - Make GPIO buttons works as the keyboard arrow keys in a early state
 - ~~**Custom** *`bootaa64.efi`* **booting from EMMC**(TESTED);~~ <br>
 - ~~**Watchdog timer kicking/turning off properly**;~~ <br>
@@ -17,9 +18,9 @@ It can boot image from *`\EFI\BOOT\BOOTAA64.efi`* in a FAT partiton(FAT32 tested
 | Feature  | Status | Description |
 | ------------- | ------------- | ------------------------------ |
 | Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
-| SimpleFB |  Partially | SimpleFBDxe works fine in a text output mode. However, it cant create GOP. |
+| SimpleFB |  Partially | SimpleFBDxe works properly in a text mode. However, it cant create GOP. |
 | Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
-| EMMC |  Works | Works at 50MHz 8-bit SDR; DDR, DMA and/or FIFO are broken |
+| EMMC |  Works | Works at 50MHz 8-bit SDR; DDR, DMA and/or FIFO/interrupts are broken |
 | DDR | Partially | Memory allocation doesn't works properly, see some logs below. |
 | SDMMC |  Not Tested | MSDC1?... idk |
 | SPI |  Broken | SPI code/driver is missing. |

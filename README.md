@@ -19,7 +19,7 @@ It can boot image from *`\EFI\BOOT\BOOTAA64.efi`* in a FAT partiton(FAT32 tested
 | Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
 | SimpleFB |  Partially | SimpleFBDxe works fine in a text output mode. However, it cant create GOP. |
 | Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
-| EMMC |  Works | Works at 50MHz 8-bit SDR; DDR is broken |
+| EMMC |  Works | Works at 50MHz 8-bit SDR; DDR, DMA and/or FIFO are broken |
 | DDR | Partially | Memory allocation doesn't works properly, see some logs below. |
 | SDMMC |  Not Tested | MSDC1?... idk |
 | SPI |  Broken | SPI code/driver is missing. |

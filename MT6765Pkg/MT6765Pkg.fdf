@@ -111,6 +111,7 @@ READ_LOCK_STATUS   = TRUE
   #
   # Multiple Console IO support
   #
+  INF MT6765Pkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
   INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
   INF MT6765Pkg/Drivers/ConSplitterDxe/ConSplitterDxe.inf
   INF MT6765Pkg/Drivers/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
@@ -137,8 +138,9 @@ READ_LOCK_STATUS   = TRUE
   # Platform Dxes
   #
   INF MT6765Pkg/Drivers/MT6765PkgDxe/MT6765PkgDxe.inf
-  INF MT6765Pkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+  
   INF MT6765Pkg/Drivers/Msdc0ProbeDxe/Msdc0ProbeDxe.inf
+  # INF MT6765Pkg/Drivers/WdtDxe/WdtDxe.inf
   INF MT6765Pkg/Drivers/LogoDxe/LogoDxe.inf
 
   #

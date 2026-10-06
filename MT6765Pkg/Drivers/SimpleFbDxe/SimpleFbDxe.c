@@ -144,8 +144,8 @@ DisplayBlt(
 
   // zhuowei: hack: flush the cache manually since my memory maps are still
   // broken
-  WriteBackInvalidateDataCacheRange(
-      (void *)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->FrameBufferSize);
+  // WriteBackInvalidateDataCacheRange(
+      // (void *)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->FrameBufferSize);
   // zhuowei: end hack
 
   return RETURN_ERROR(Status) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
@@ -156,35 +156,26 @@ EFIAPI
 SimpleFbDxeInitialize(
     IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
 {
-
   EFI_STATUS Status             = EFI_SUCCESS;
   EFI_HANDLE hUEFIDisplayHandle = NULL;
 
-  /* Retrieve simple frame buffer from pre-SEC bootloader */
-  DEBUG(
-      (EFI_D_ERROR,
-       "SimpleFbDxe: Retrieve MIPI FrameBuffer parameters from PCD\n"));
+  DEBUG((EFI_D_ERROR, "SimpleFbDxe: Initializing FrameBuffer...\n"));
+
   UINT32 MipiFrameBufferAddr   = FixedPcdGet32(PcdMipiFrameBufferAddress);
   UINT32 MipiFrameBufferWidth  = FixedPcdGet32(PcdMipiFrameBufferWidth);
   UINT32 MipiFrameBufferHeight = FixedPcdGet32(PcdMipiFrameBufferHeight);
 
-  /* Sanity check */
-  if (MipiFrameBufferAddr == 0 || MipiFrameBufferWidth == 0 ||
-      MipiFrameBufferHeight == 0) {
+  if (MipiFrameBufferAddr == 0 || MipiFrameBufferWidth == 0 || MipiFrameBufferHeight == 0) {
     DEBUG((EFI_D_ERROR, "SimpleFbDxe: Invalid FrameBuffer parameters\n"));
     return EFI_DEVICE_ERROR;
   }
 
-  /* Prepare struct */
   if (mDisplay.Mode == NULL) {
     Status = gBS->AllocatePool(
         EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE),
         (VOID **)&mDisplay.Mode);
-
     ASSERT_EFI_ERROR(Status);
-    if (EFI_ERROR(Status))
-      return Status;
-
+    if (EFI_ERROR(Status)) return Status;
     ZeroMem(mDisplay.Mode, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE));
   }
 
@@ -192,15 +183,11 @@ SimpleFbDxeInitialize(
     Status = gBS->AllocatePool(
         EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION),
         (VOID **)&mDisplay.Mode->Info);
-
     ASSERT_EFI_ERROR(Status);
-    if (EFI_ERROR(Status))
-      return Status;
-
+    if (EFI_ERROR(Status)) return Status;
     ZeroMem(mDisplay.Mode->Info, sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION));
   }
 
-  /* Set information */
   mDisplay.Mode->MaxMode       = 1;
   mDisplay.Mode->Mode          = 0;
   mDisplay.Mode->Info->Version = 0;
@@ -208,20 +195,19 @@ SimpleFbDxeInitialize(
   mDisplay.Mode->Info->HorizontalResolution = MipiFrameBufferWidth;
   mDisplay.Mode->Info->VerticalResolution   = MipiFrameBufferHeight;
 
-  /* SimpleFB runs on a8r8g8b8 (VIDEO_BPP32) for DB410c */
-  UINT32               LineLength = MipiFrameBufferWidth * VNBYTES(VIDEO_BPP32);
-  UINT32               FrameBufferSize    = LineLength * MipiFrameBufferHeight;
-  EFI_PHYSICAL_ADDRESS FrameBufferAddress = MipiFrameBufferAddr;
+  UINT32 LineLength       = FixedPcdGet32(PcdMipiFrameBufferStride);
+  UINT32 FrameBufferSize  = LineLength * MipiFrameBufferHeight;
 
-  mDisplay.Mode->Info->PixelsPerScanLine = MipiFrameBufferWidth;
-  mDisplay.Mode->Info->PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
+  mDisplay.Mode->Info->PixelsPerScanLine = LineLength / FB_BYTES_PER_PIXEL;
+  
+  // set to default PixelBlueGreenRedReserved8BitPerColor 
+  mDisplay.Mode->Info->PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
+
   mDisplay.Mode->SizeOfInfo      = sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION);
-  mDisplay.Mode->FrameBufferBase = FrameBufferAddress;
+  mDisplay.Mode->FrameBufferBase = (EFI_PHYSICAL_ADDRESS)MipiFrameBufferAddr;
   mDisplay.Mode->FrameBufferSize = FrameBufferSize;
 
-  //
-  // Create the FrameBufferBltLib configuration.
-  //
+  // config blt
   Status = FrameBufferBltConfigure(
       (VOID *)(UINTN)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->Info,
       mFrameBufferBltLibConfigure, &mFrameBufferBltLibConfigureSize);
@@ -234,15 +220,6 @@ SimpleFbDxeInitialize(
     }
   }
   ASSERT_EFI_ERROR(Status);
-
-  // zhuowei: clear the screen to black
-  // UEFI standard requires this, since text is white - see
-  // OvmfPkg/QemuVideoDxe/Gop.c
-  ZeroMem((void *)FrameBufferAddress, FrameBufferSize);
-  // hack: clear cache
-  WriteBackInvalidateDataCacheRange(
-      (void *)FrameBufferAddress, FrameBufferSize);
-  // zhuowei: end
 
   /* Register handle */
   Status = gBS->InstallMultipleProtocolInterfaces(

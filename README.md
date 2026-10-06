@@ -16,7 +16,7 @@ GRUB booting tested, booting Image function partially works with `console=tty0 e
 | Feature  | Status | Description |
 | ------------- | ------------- | ------------------------------ |
 | Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
-| SimpleFB |  Partially | SimpleFBDxe works properly in a text mode. However, it cant create GOP. |
+| SimpleFB |  Partially | SimpleFBDxe works properly in a text mode. GOP works too. |
 | Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
 | EMMC |  Works | Works at 50MHz 8-bit SDR; DDR, DMA and/or FIFO/interrupts are broken |
 | DDR | Works | Yep, now the memory map is fixed! |

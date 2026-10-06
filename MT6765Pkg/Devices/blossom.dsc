@@ -10,18 +10,21 @@
   FLASH_DEFINITION               = MT6765Pkg/MT6765Pkg.fdf
 
 !include MT6765Pkg/MT6765Pkg.dsc
-
+ # mhh~... its... i-its for dandelion 2gb ddr variant only...
 [PcdsFixedAtBuild.common]
+
+ # gArmTokenSpaceGuid.PcdArmPhysicalAddressBits|36
+ # gArmTokenSpaceGuid.PcdArmVirtualAddressBits|36
+ #  gArmTokenSpaceGuid.PcdArmMemorySpaceSize|36
+  # where are some bootshim space???
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x40000000
-  gArmTokenSpaceGuid.PcdSystemMemorySize|0xc0000000
+  gArmTokenSpaceGuid.PcdSystemMemorySize|0x80000000
   gEmbeddedTokenSpaceGuid.PcdPrePiStackBase|0x40C00000
   gEmbeddedTokenSpaceGuid.PcdPrePiStackSize|0x00040000
   gMT6765PkgTokenSpaceGuid.PcdUefiMemPoolBase|0x40D00000
   gMT6765PkgTokenSpaceGuid.PcdUefiMemPoolSize|0x03300000
   gArmTokenSpaceGuid.PcdCpuVectorBaseAddress|0x40C40000
 
-  # Redmi 9A / Xiaomi Blossom framebuffer.
-  # Physical format: RGB888 stored in a 32-bit framebuffer word.
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferAddress|0x7EC50000
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferWidth|720
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferHeight|1600

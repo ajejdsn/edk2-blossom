@@ -2,7 +2,7 @@
   SMBIOS tables for Xiaomi Redmi 9A (dandelion, MT6762G Helio G25)
 
   Copyright (c) 2015, ARM Limited. All rights reserved.
-  Copyright (c) 2026, Emil Ermekov
+  Copyright (c) 2026, ajejdsn
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 
@@ -56,14 +56,14 @@
   "L2\0"                             /* L2   */
 
 #define TYPE16_STRINGS                             \
-  "\0"                               /* nothing...... */
+  "\0"                               /* nothing */
 
 #define TYPE17_STRINGS                                       \
   "RIGHT SIDE\0"                     /* location */          \
   "BANK 0\0"                         /* bank description */
 
 #define TYPE32_STRINGS                             \
-  "\0"                               /* nothing... again */
+  "\0"                               /* nothing...... */
 
 #pragma pack(1)
 typedef struct {
@@ -178,7 +178,7 @@ STATIC CONST ARM_TYPE1 mArmDefaultType1 = {
     3,     // Version
     4,     // Serial
     { 0x2555d305, 0x5bb8, 0x4e7d,
-      { 0xa5, 0xb0, 0x7c, 0xf4, 0x4f, 0x76, 0xb2, 0x72 }}, // UUID
+      { 0xa5, 0xb0, 0x7c, 0xf4, 0x4f, 0x76, 0xb2, 0x72 }}, // UUID, hardcoded... but why not?
     6,     // PS
     0,     // SKU
     0,     // Family
@@ -186,7 +186,7 @@ STATIC CONST ARM_TYPE1 mArmDefaultType1 = {
   TYPE1_STRINGS
 };
 
-// Baseboard (section 7.3)
+// Baseboard
 STATIC ARM_TYPE2 mArmDefaultType2 = {
   {
     {
@@ -209,7 +209,7 @@ STATIC ARM_TYPE2 mArmDefaultType2 = {
   TYPE2_STRINGS
 };
 
-// Enclosure
+
 STATIC CONST ARM_TYPE3 mArmDefaultType3 = {
   {
     {
@@ -229,12 +229,12 @@ STATIC CONST ARM_TYPE3 mArmDefaultType3 = {
     {0,0,0,0},
     1,  // height
     1,  // power cords
-    0,  // contained elements
+    0,
   },
   TYPE3_STRINGS
 };
 
-// CPU: 8x Cortex-A53 @ 2.0 GHz
+// CPU
 STATIC CONST ARM_TYPE4 mArmDefaultType4_a53 = {
   {
     {
@@ -247,7 +247,7 @@ STATIC CONST ARM_TYPE4 mArmDefaultType4_a53 = {
     ProcessorFamilyIndicatorFamily2,
     2, // manufacturer
     {{0,},{0.}},
-    3, // version -> TYPE4_STRINGS[3] = "Cortex-A53"
+    3, 
     {0,0,0,0,0,1}, // voltage
     0,
     2000, // max speed MHz
@@ -262,7 +262,7 @@ STATIC CONST ARM_TYPE4 mArmDefaultType4_a53 = {
     4, // part number -> TYPE4_STRINGS[4] = "0xd03"
     8, // core count
     8, // enabled core count
-    8, // threads per socket (A53 = 1 thread per core, but SMBIOS quirk)
+    8, // threads\(A53 = 1 thread per core, but SMBIOS quirk)
     0xEC,
     ProcessorFamilyARM,
   },
@@ -360,18 +360,18 @@ STATIC CONST ARM_TYPE17 mArmDefaultType17 = {
       sizeof (SMBIOS_TABLE_TYPE17),
       SMBIOS_HANDLE_DIMM,
     },
-    SMBIOS_HANDLE_MEMORY, // array handle
-    0xFFFE,               // no errors
-    32,                   // total width (2x16)
+    SMBIOS_HANDLE_MEMORY, // arry handle
+    0xFFFE,               // noerrors
+    32,                   // tot width (2x16)
     32,                   // data width
-    0x2000,               // 2GB (MB) = 2048
-    0x0B,                 // row of chips (soldered)
+    0x2000,               // 2GB
+    0x0B,                 // row of chip (soldered)
     0,                    // not part of a set
-    1,                    // right side
+    1,                    // r side
     2,                    // bank 0
     MemoryTypeLpddr4,     // SMBIOS 0x1E, no LPDDR4X code
     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,1}, // unbuffered
-    1600,                 // speed MHz
+    1600,                 // MHz
     0,                    // manufacturer
     0,                    // serial
     0,                    // asset tag

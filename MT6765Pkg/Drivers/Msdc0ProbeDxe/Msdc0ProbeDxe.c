@@ -1,5 +1,15 @@
 /*
  * Msdc0ProbeDxe.c
+ *  Copyright (c) 2026, Emil Ermekov (ajejdsn) <emilermekov@national.shitposting.agency>
+ *
+ * This program and the accompanying materials
+ * are licensed and made available under the terms and conditions of the BSD License
+ * which accompanies this distribution.  The full text of the license may be found at
+ * http://opensource.org/licenses/bsd-license.php
+ *
+ * THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
+ *
  *
  * ima newbie >.<
  * EMMC current mode: 50MHz SDR 8-bit, DDR is broken rn tho;
@@ -392,24 +402,24 @@ MsdcResponseType (
   switch (Opcode) {
     case 0:
     case 4:
-      return 0;
+      return 0; // no resp
     case 2:
     case 9:
-      return 2;
+      return 2; // r2 (way too big!)
     case 1:
     case 41:
-      return 3;
+      return 3; // r3
     case 5:
-      return 4;
+      return 4; // r4
     case 6:
     case 7:
     case 12:
     case 28:
     case 29:
     case 38:
-      return 7;
+      return 7; // r1b
     default:
-      return 1;
+      return 1; // r1/r6/r7
   }
 }
 
@@ -811,7 +821,7 @@ MsdcReadBlockData (
   (VOID)This;
   DEBUG ((
     DEBUG_INFO,
-    "MSDC0: ReadBlockData LBA=%Lu Length=%Lu Buffer=%p\n",
+    "MSDC0: ReadBlockData LBA=%Lu Length=%Lu Buffer=%p\n", // remove after tests
     (UINT64)Lba,
     (UINT64)Length,
     Buffer
@@ -1026,11 +1036,11 @@ MsdcSetIos (
     case EMMCHS52DDR1V8:
       Ddr = TRUE;
       break;
-    case EMMCHS52DDR1V2:
-    case EMMCHS200SDR1V8:
-    case EMMCHS200SDR1V2:
-    case EMMCHS400DDR1V8:
-    case EMMCHS400DDR1V2:
+    case EMMCHS52DDR1V2:    // HS52  52Mhz DDR 1.2V
+    case EMMCHS200SDR1V8:	// HS200 200Mhz SDR 1.8V
+    case EMMCHS200SDR1V2:	// HS200 200Mhz SDR 1.2V , wait why hs200 is sdr only? nvm
+    case EMMCHS400DDR1V8:	// HS400 400Mhz DDR 1.8V
+    case EMMCHS400DDR1V2:	// HS400 400Mhz DDR 1.2V
       return EFI_UNSUPPORTED; // kys
     default:
       break;

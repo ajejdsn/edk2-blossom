@@ -27,7 +27,6 @@
 ################################################################################
 [Includes.common]
   Include                        # Root include for the package
-
 [Guids.common]
   gMT6765PkgTokenSpaceGuid        = { 0x99a14446, 0xaad7, 0xe460, {0xb4, 0xe5, 0x1f, 0x79, 0xaa, 0xa4, 0x93, 0xfd } }
 
@@ -38,8 +37,8 @@
 
 [PcdsFixedAtBuild.common]
   # Memory allocation
-  gMT6765PkgTokenSpaceGuid.PcdUefiMemPoolBase|0|UINT64|0x00000a106
-  gMT6765PkgTokenSpaceGuid.PcdUefiMemPoolSize|0|UINT32|0x00000a107
+  gMT6765PkgTokenSpaceGuid.PcdUefiMemPoolBase|0|UINT64|0x0000a106
+  gMT6765PkgTokenSpaceGuid.PcdUefiMemPoolSize|0|UINT32|0x0000a107
 
   # Simple FrameBuffer
   gMT6765PkgTokenSpaceGuid.PcdEmuVariableNvModeEnable|TRUE|BOOLEAN|1

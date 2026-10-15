@@ -1,0 +1,19 @@
+[Defines]
+  INF_VERSION    = 0x0001001B
+  BASE_NAME      = ArmGicArchLib
+  FILE_GUID      = e4df5149-a62d-4922-a33b-3ad81a210702
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = ArmGicArchLib
+
+[Sources]
+  ArmGicArchLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  MT6765Pkg/MT6765Pkg.dec
+
+[LibraryClasses]
+  BaseLib
+  ArmLib

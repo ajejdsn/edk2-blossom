@@ -2,15 +2,19 @@
 
 Work in progress. Many things is broken. <br>
 It can boot image from *`\EFI\BOOT\BOOTAA64.efi`* in a FAT partiton(FAT32 tested), but it doesn't takes any sence right now;<br>
-GRUB booting tested, booting Image function partially works with `console=tty0 earlycon=simplefb,0x7ec50000 video=simplefb:on clk_ignore_unused pd_ignore_unused regulator_ignore_unused maxcpus=1 nosmp nokaslr panic=10` params only, because of broken interrupts
+GRUB booting tested, booting Image function partially works with `console=tty0 earlycon=simplefb,0x7ec50000 video=simplefb:on clk_ignore_unused pd_ignore_unused regulator_ignore_unused maxcpus=1 nosmp nokaslr panic=10` params only, because of broken interrupts<br>
+TODO: test the linux witta new fixes<br>
+tiny11 aa64 is trying to boot, but stuck at the ramdisk loading and bgrt read ig(logo is shown up!111!!!)<br>
+thats because ima trying to boot installer/winpe instead of pre-installed one ig
 
 ## Main tasks/TODO:
 - **~~MSDC0~~, MSDC1, ~~Block IO~~ working**; <br>
-- Make GIC, SPI/SMBus work.;<br>
+- Make ~~GIC~~, SPI/SMBus work.;<br>
 - Make BDS see anything else except FAT
-- Make GPIO buttons works as the keyboard arrow keys in a early state
+- ~~Make GPIO buttons works as the keyboard arrow keys in a early state~~ (no sence)
 - ~~**Custom** *`bootaa64.efi`* **booting from EMMC**(TESTED);~~ <br>
 - ~~**Watchdog timer kicking/turning off properly**;~~ <br>
+- Normal ACPI Tables and BGRT
 
 # Features: 
 | Feature  | Status | Description |
@@ -28,10 +32,14 @@ GRUB booting tested, booting Image function partially works with `console=tty0 e
 | UEFI Shell | Works | Boots into UEFI shell. |
 | GPIO | Broken | Driver is missing. |
 | WDT | Works | WDT is turned off right now. |
-| SMBIOS | Works | SMBIOS tables succesful creating |
-| GIC/INTS | Broken | MT6762G uses GICv2 or GICv3, interrupts doesnt works |
+| SMBIOS | Works | SMBIOS tables succesful creating, fixed for the current device |
+| GIC/INTS | Broken | Probably works, EDKII GIC driver is on the enforced GICv2 mode |
 | SYSIRQ | Broken | ...This SoC has proprietary SYSIRQ Interrupt controller, idk what can I do... >_< |
 | etc. | ??? | no drivers... -_-|
+
+## ATTENTION
+The main target is a dandelion(2GB), it's not tested on a angelica/other 3-4gb ram garden/blossom devices are not recommended and I guess that it'll detect 2gb of ram only on them<br>
+flash ts at ur own risk, good luck =)
 
 
 

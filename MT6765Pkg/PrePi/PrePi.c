@@ -1,7 +1,9 @@
 /** @file
 
-  Copyright (c) 2011-2017, ARM Limited. All rights reserved.
+	PrePi.c
 
+  Copyright (c) 2011-2017, ARM Limited. All rights reserved.
+  Copyright (c) 2026, Emil Ermekov (ajejdsn) <emilermekov@national.shitposting.agency>
   SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
@@ -24,15 +26,15 @@
 
 VOID EFIAPI ProcessLibraryConstructorList(VOID);
 
-char* uart_reg0 = (char*)0x11002000;
+char* uart_reg0 = (char*)0x11002000; // todo: inspect uart on the board, and remove these regs ig
 char* uart_reg1 = (char*)0x11002014;
 
-volatile UINT32* wdt_reg = (volatile UINT32*)0x10007000;
+volatile UINT32* wdt_reg = (volatile UINT32*)0x10007000; // how is ts works?
 
 VOID DisableWDT()
 {
-  *wdt_reg = 0x22000000;
-}
+  *wdt_reg = 0x22000000; // ah nvm
+}						 // thanks to edk2-mtk for wdt disable code peaces <https://github.com/linux-mediatek/edk2-mtk>
 
 void PrintUart(char* str) {
     char c = str[0];
@@ -145,6 +147,9 @@ VOID
 CEntryPoint ()
 {
   UartInit();
-  DisableWDT();
+  DisableWDT(); // who's a good dog? *pat*
   Main(0);
 }
+
+
+// i need to be more serious... or not?

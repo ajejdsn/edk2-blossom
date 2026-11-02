@@ -7,13 +7,16 @@ TODO: test the linux witta new fixes<br>
 tiny11 aa64 is trying to boot, but stuck at the ramdisk loading and bgrt read ig(logo is shown up!111!!!)<br>
 thats because ima trying to boot installer/winpe instead of pre-installed one ig
 
-## Main tasks/TODO:
-- **~~MSDC0~~, MSDC1, ~~Block IO~~ working**; <br>
+## TODO:
+- **~~MSDC0~~, MSDC1, ~~Block IO~~**; <br>
 - Make ~~GIC~~, SPI/SMBus work.;<br>
 - Make BDS see anything else except FAT
 - ~~Make GPIO buttons works as the keyboard arrow keys in a early state~~ (no sence)
 - ~~**Custom** *`bootaa64.efi`* **booting from EMMC**(TESTED);~~ <br>
 - ~~**Watchdog timer kicking/turning off properly**;~~ <br>
+- MSDC0 DMA and switching from 50MHz to HS200 SDR(ddr is way too complicated >~<)
+- USB OTG Testing
+- UART Testing
 - Normal ACPI Tables and BGRT
 
 # Features: 

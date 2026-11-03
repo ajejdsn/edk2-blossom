@@ -4,8 +4,7 @@ Work in progress. Many things is broken. <br>
 It can boot image from *`\EFI\BOOT\BOOTAA64.efi`* in a FAT partiton(FAT32 tested), but it doesn't takes any sence right now;<br>
 GRUB booting tested, booting Image function partially works with `console=tty0 earlycon=simplefb,0x7ec50000 video=simplefb:on clk_ignore_unused pd_ignore_unused regulator_ignore_unused maxcpus=1 nosmp nokaslr panic=10` params only, because of broken interrupts<br>
 TODO: test the linux witta new fixes<br>
-tiny11 aa64 is trying to boot, but stuck at the ramdisk loading and bgrt read ig(logo is shown up!111!!!)<br>
-thats because ima trying to boot installer/winpe instead of pre-installed one ig
+tiny11 aa64 is trying to boot,ramdisk unpacking, mem allocating, but stuck at the logo, probably winload.efi is loading, thats bc of kaslr/smp ig<br>
 
 ## TODO:
 - **~~MSDC0~~, MSDC1, ~~Block IO~~**; <br>
@@ -14,7 +13,7 @@ thats because ima trying to boot installer/winpe instead of pre-installed one ig
 - ~~Make GPIO buttons works as the keyboard arrow keys in a early state~~ (no sence)
 - ~~**Custom** *`bootaa64.efi`* **booting from EMMC**(TESTED);~~ <br>
 - ~~**Watchdog timer kicking/turning off properly**;~~ <br>
-- MSDC0 DMA and switching from 50MHz to HS200 SDR(ddr is way too complicated >~<)
+- ~~MSDC0 DMA and switching from 50MHz to HS200 SDR(ddr is way too complicated >n<)~~
 - USB OTG Testing
 - UART Testing
 - Normal ACPI Tables and BGRT
@@ -25,7 +24,7 @@ thats because ima trying to boot installer/winpe instead of pre-installed one ig
 | Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
 | SimpleFB |  Partially | SimpleFBDxe works properly in a text mode. GOP works too. |
 | Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
-| EMMC |  Works | Works at 50MHz 8-bit SDR; DDR, DMA and/or FIFO/interrupts are broken |
+| EMMC |  Works | Works at 50MHz 8-bit SDR; DMA mode |
 | DDR | Works | Yep, now the memory map is fixed! |
 | SDMMC |  Not Tested | MSDC1?... idk |
 | SPI |  Broken | SPI code/driver is missing. |
@@ -47,7 +46,7 @@ flash ts at ur own risk, good luck =)
 
 
 ### Issues
-EMMC DDR is broken. Not gonna fix it cuz idc.<br>
+EMMC DDR is not tested<br>
 Interrupts are broken. idk how to fix ts
 
 # Building

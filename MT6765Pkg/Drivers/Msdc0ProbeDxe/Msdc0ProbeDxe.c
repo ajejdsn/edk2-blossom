@@ -11,32 +11,38 @@
  * WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
  *
  *
- * ima newbie >.<
- * EMMC current mode: 50MHz SDR 8-bit, DDR is broken rn tho;
+ * multiblock is working ig
+ * using dmaaaaaa
+ * ima new btw >~<
  *
- * MT6762/MT6762G/MT6765 ComboA MSDC0 eMMC host
+ * bebebe
  *
- * it uses polled PIO, its intended for early
- * emmc enumeration path where a DMA descriptor allocator and an interrupt
- * handler are not available yet
+ * kto prochital tot loh
  *
- * am i good boy? UwU
- *
- * 
- */
+*/
+
+
+
 
 #include <Uefi.h>
-
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/IoLib.h>
 #include <Library/TimerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/CacheMaintenanceLib.h>
 
 #include <Protocol/MmcHost.h>
 
 #define MSDC0_BASE              0x11230000U
+
+
+// src clock of msdc0, if real one is lower the card just runs slower never faster
+
+#define MSDC_SRC_CLK_HZ         400000000U
+#define MSDC_INIT_CLOCK_HZ      400000U
+#define MSDC_MAX_CLOCK_HZ       50000000U
 
 #define MSDC_CFG                0x00
 #define MSDC_IOCON              0x04
@@ -44,8 +50,6 @@
 #define MSDC_INT                0x0C
 #define MSDC_INTEN              0x10
 #define MSDC_FIFOCS             0x14
-#define MSDC_TXDATA             0x18
-#define MSDC_RXDATA             0x1C
 
 #define SDC_CFG                 0x30
 #define SDC_CMD                 0x34
@@ -57,22 +61,32 @@
 #define SDC_RESP3               0x4C
 #define SDC_BLK_NUM             0x50
 
+#define MSDC_PAD_TUNE           0xEC
 #define MSDC_PAD_TUNE0          0xF0
-#define MSDC_PATCH_BIT0         0xB0
-#define MSDC_PATCH_BIT1         0xB4
-#define MSDC_PATCH_BIT2         0xB8
+#define MSDC_DMA_SA_HIGH        0x8C
+#define MSDC_DMA_SA             0x90
+#define MSDC_DMA_CTRL           0x98
+#define MSDC_DMA_CFG            0x9C
 
 #define MSDC_CFG_MODE           BIT0
-#define MSDC_CFG_CKPDN          BIT1
+#define MSDC_CFG_CKPDN          BIT1      // 1 is clock running, 0 is clock gated
 #define MSDC_CFG_RST            BIT2
 #define MSDC_CFG_PIO            BIT3
 #define MSDC_CFG_CKSTB          BIT7
+#define MSDC_CFG_CKDIV_SHIFT    8
 #define MSDC_CFG_CKDIV          0x000FFF00U
-#define MSDC_CFG_CKMOD          0x00300000U
 #define MSDC_CFG_CKMOD_SHIFT    20
-#define MSDC_CFG_SCLK_STOP_DDR  BIT25
+#define MSDC_CFG_CKMOD          0x00300000U
+#define MSDC_CFG_HS400_CK_MODE  BIT22
 
-#define MSDC_IOCON_DDR50CKD     BIT4
+#define MSDC_PS_DAT0            BIT16
+
+#define MSDC_IOCON_SAMPLE_BITS  0x00FF013EU   // RSPL DSPL DDLSEL DDR50CKD DSPLSEL W_DSPL D0..D7SPL
+#define MSDC_IOCON_DSPL         BIT2
+#define MSDC_PAD_TUNE_DATRRDLY  0x00001F00U
+#define MSDC_PAD_TUNE_DATRR_SH  8
+#define MSDC_PAD_TUNE_RD_SEL    BIT13
+#define MSDC_PAD_TUNE_CMD_SEL   BIT21
 
 #define MSDC_INT_CMDRDY         BIT8
 #define MSDC_INT_CMDTMO         BIT9
@@ -80,1084 +94,890 @@
 #define MSDC_INT_XFER_COMPL     BIT12
 #define MSDC_INT_DATTMO         BIT14
 #define MSDC_INT_DATCRCERR      BIT15
+#define MSDC_INT_DMA_BDCSERR    BIT17
+#define MSDC_INT_DMA_GPDCSERR   BIT18
+#define MSDC_INT_DMA_PROTECT    BIT19
 
-#define MSDC_FIFOCS_CLR         BIT31
 #define MSDC_FIFOCS_RXCNT       0x000000FFU
 #define MSDC_FIFOCS_TXCNT       0x00FF0000U
+#define MSDC_FIFOCS_CLR         BIT31
 
+#define SDC_CFG_BUSWIDTH_SHIFT  16
 #define SDC_CFG_BUSWIDTH        0x00030000U
 #define SDC_CFG_SDIO            BIT19
 #define SDC_CFG_SDIOIDE         BIT20
+#define SDC_CFG_DTOC_SHIFT      24
 #define SDC_CFG_DTOC            0xFF000000U
 
 #define SDC_CMD_OPC             0x0000003FU
-#define SDC_CMD_RSPTYP          0x00000380U
-#define SDC_CMD_DTYPE           0x00001800U
+#define SDC_CMD_RSPTYP_SHIFT    7
 #define SDC_CMD_DTYPE_SINGLE    BIT11
 #define SDC_CMD_DTYPE_MULTI     BIT12
 #define SDC_CMD_WR              BIT13
 #define SDC_CMD_STOP            BIT14
+#define SDC_CMD_BLKLEN_SHIFT    16
 #define SDC_CMD_BLKLEN          0x0FFF0000U
 
 #define SDC_STS_SDCBUSY         BIT0
 #define SDC_STS_CMDBUSY         BIT1
 
-// comboA MT6765 vendor defaults used by msdc_init_tune_setting()
-#define MSDC_PB0_DEFAULT_VAL        0x403C0007U
-#define MSDC_PB1_DEFAULT_VAL        0xFFFA0349U
-#define MSDC_PB1_DDR_CMD_FIX_SEL    BIT14
-#define MSDC_PB2_RESPWAITCNT        (0x3U << 2)
-#define MSDC_PB2_RESPSTENSEL        (0x7U << 16)
-#define MSDC_PB2_DDR50SEL           BIT19
-#define MSDC_PB2_CRCSTSENSEL        (0x7U << 29)
+#define MSDC_DMA_CTRL_START     BIT0
+#define MSDC_DMA_CTRL_STOP      BIT1
+#define MSDC_DMA_CTRL_MODE      BIT8      // 1 descr mode
+#define MSDC_DMA_CTRL_BURST_64B (6U << 12)
+#define MSDC_DMA_CTRL_BURST     (7U << 12)
+#define MSDC_DMA_CFG_STS        BIT0
+#define MSDC_DMA_CFG_DECSEN     BIT1
+
+#define GPDMA_DESC_HWO          BIT0
+#define GPDMA_DESC_BDP          BIT1
+#define BDMA_DESC_EOL           BIT0
 
 #define MSDC_BLOCK_SIZE         512U
-#define MSDC_FIFO_SIZE          128U
-#define MSDC_CMD_TIMEOUT_US     1000000U
-#define MSDC_DATA_TIMEOUT_US    5000000U
+#define MSDC_BD_MAX_LEN         0x8000U
+#define MSDC_BD_MAX_NUM         16U
+#define MSDC_BOUNCE_PAGES       128U
 
-// set to 1 only for a diagnostic boot; normal operation keeps DDR enabled
-#define MSDC_FORCE_SDR_FALLBACK 1
+#define MSDC_DESC_GPD2_OFF      0x40U
+#define MSDC_DESC_BD_OFF        0x80U
 
-//comboA MSDC0 uses the 400 MHz MSDCPLL parent
-#define MSDC0_SOURCE_HZ         400000000U
+#define MSDC_CMD_TIMEOUT_US     200000U
+#define MSDC_BUSY_TIMEOUT_US    3000000U
+#define MSDC_DAT0_TIMEOUT_US    500000U
+#define MSDC_DATA_TIMEOUT_US    10000000U
 
-#define MSDC_DATA_INT_MASK      (MSDC_INT_XFER_COMPL | MSDC_INT_DATTMO | MSDC_INT_DATCRCERR)
 #define MSDC_CMD_INT_MASK       (MSDC_INT_CMDRDY | MSDC_INT_CMDTMO | MSDC_INT_RSPCRCERR)
+#define MSDC_DMA_ERR_MASK       (MSDC_INT_DMA_BDCSERR | MSDC_INT_DMA_GPDCSERR | MSDC_INT_DMA_PROTECT)
+#define MSDC_DATA_INT_MASK      (MSDC_INT_XFER_COMPL | MSDC_INT_DATTMO | MSDC_INT_DATCRCERR | MSDC_DMA_ERR_MASK)
+#define MSDC_ALL_INT_MASK       (MSDC_CMD_INT_MASK | MSDC_DATA_INT_MASK)
 
-STATIC EFI_MMC_HOST_PROTOCOL  mMsdcHost;
-STATIC UINT32                 mLastCommand;
-STATIC UINT32                 mCommandRetryDepth;
-STATIC BOOLEAN                mPendingMultiBlock;
-STATIC UINT32                 mPendingMultiArgument;
-STATIC BOOLEAN                mSuppressEmulatedStop;
+// emmc status r1 value reported for cmds that executed lazily (READY_FOR_DATA, state= tran)
+#define MSDC_FAKE_R1_READY      0x00000900U
 
-STATIC
-UINT32
-MsdcRead (
-  IN UINTN Offset
-  )
+typedef struct {
+  UINT32 GpdInfo;
+  UINT32 Next;
+  UINT32 Ptr;
+  UINT32 GpdDataLen;
+  UINT32 Arg;
+  UINT32 BlkNum;
+  UINT32 Cmd;
+} MT_GPDMA_DESC;
+
+typedef struct {
+  UINT32 BdInfo;
+  UINT32 Next;
+  UINT32 Ptr;
+  UINT32 BdDataLen;
+} MT_BDMA_DESC;
+
+STATIC MT_GPDMA_DESC         *mDmaGpd;
+STATIC MT_BDMA_DESC          *mDmaBd;
+STATIC EFI_PHYSICAL_ADDRESS   mDescPhys;
+STATIC UINT8                 *mBounce;
+STATIC EFI_PHYSICAL_ADDRESS   mBouncePhys;
+STATIC UINT32                 mBounceBlocks;
+
+STATIC UINT32                 mPadTuneReg = MSDC_PAD_TUNE0;
+STATIC BOOLEAN                mTuneDone;
+STATIC UINT8                  mTuneBuf[MSDC_BLOCK_SIZE];
+STATIC BOOLEAN                mPendingValid;
+STATIC UINT32                 mPendingOpcode;
+STATIC UINT32                 mPendingArg;
+STATIC UINT32                 mPredefBlocks;
+STATIC BOOLEAN                mStopHandled;
+STATIC BOOLEAN                mUseCachedResp;
+STATIC UINT32                 mCachedResp[4];
+
+STATIC UINT32 MsdcRead (IN UINTN Offset)
 {
   return MmioRead32 (MSDC0_BASE + Offset);
 }
 
-STATIC
-VOID
-MsdcWrite (
-  IN UINTN  Offset,
-  IN UINT32 Value
-  )
+STATIC VOID MsdcWrite (IN UINTN Offset, IN UINT32 Value)
 {
   MmioWrite32 (MSDC0_BASE + Offset, Value);
 }
 
-STATIC
-VOID
-MsdcW1c (
-  IN UINT32 Mask
-  )
+STATIC VOID MsdcW1c (IN UINT32 Mask)
 {
   MmioWrite32 (MSDC0_BASE + MSDC_INT, Mask);
 }
 
-STATIC
-VOID
-MsdcDebugState (
-  IN CONST CHAR8 *Tag
-  )
+STATIC EFI_STATUS MsdcWaitMask (IN UINTN Offset, IN UINT32 Mask, IN BOOLEAN Set, IN UINT32 TimeoutUs)
 {
-  DEBUG ((
-    DEBUG_INFO,
-    "MSDC0 %a: CFG=%08x IOCON=%08x PS=%08x INT=%08x INTEN=%08x FIFO=%08x SDC_CFG=%08x SDC_STS=%08x PB0=%08x PB1=%08x PB2=%08x CMD=%08x ARG=%08x\n",
-    Tag,
-    MsdcRead (MSDC_CFG),
-    MsdcRead (MSDC_IOCON),
-    MsdcRead (MSDC_PS),
-    MsdcRead (MSDC_INT),
-    MsdcRead (MSDC_INTEN),
-    MsdcRead (MSDC_FIFOCS),
-    MsdcRead (SDC_CFG),
-    MsdcRead (SDC_STS),
-    MsdcRead (MSDC_PATCH_BIT0),
-    MsdcRead (MSDC_PATCH_BIT1),
-    MsdcRead (MSDC_PATCH_BIT2),
-    MsdcRead (SDC_CMD),
-    MsdcRead (SDC_ARG)
-    ));
-}
+  UINT32 Value;
 
-STATIC
-EFI_STATUS
-MsdcWaitMask (
-  IN UINTN   Offset,
-  IN UINT32  Mask,
-  IN BOOLEAN Set,
-  IN UINT32  TimeoutUs
-  )
-{
   if (TimeoutUs == 0) {
     TimeoutUs = 1;
   }
-
   while (TimeoutUs-- != 0) {
-    UINT32 Value;
-
     Value = MsdcRead (Offset);
     if (Set) {
       if ((Value & Mask) == Mask) {
         return EFI_SUCCESS;
       }
-    } else if ((Value & Mask) == 0) {
-      return EFI_SUCCESS;
+    } else {
+      if ((Value & Mask) == 0) {
+        return EFI_SUCCESS;
+      }
     }
-
     MicroSecondDelay (1);
   }
-
   return EFI_TIMEOUT;
 }
 
-STATIC
-EFI_STATUS
-MsdcResetController (
-  VOID
-  )
+STATIC UINT8 MsdcDmaChecksum (IN CONST UINT8 *Buf, IN UINT32 Len)
 {
-  UINT32 Cfg;
-  UINT32 SdcCfg;
-  UINT32 Int;
-  BOOLEAN ClockEnabled;
-  EFI_STATUS Status;
-  Cfg    = MsdcRead (MSDC_CFG);
-  SdcCfg = MsdcRead (SDC_CFG);
-  ClockEnabled = (BOOLEAN)((Cfg & MSDC_CFG_CKPDN) != 0);
+  UINT32 Sum = 0;
+  UINT32 Index;
 
-  Cfg |= MSDC_CFG_MODE | MSDC_CFG_PIO | MSDC_CFG_RST;
-  MsdcWrite (MSDC_CFG, Cfg);
-  Status = MsdcWaitMask (MSDC_CFG, MSDC_CFG_RST, FALSE, 10000);
-  if (EFI_ERROR (Status)) {
-    return Status;
+  for (Index = 0; Index < Len; Index++) {
+    Sum += Buf[Index];
   }
+  return (UINT8)(0xFF - (UINT8)Sum);
+}
 
-  Cfg = MsdcRead (MSDC_CFG);
-  Cfg |= MSDC_CFG_MODE | MSDC_CFG_PIO;
-  if (ClockEnabled) {
-    Cfg |= MSDC_CFG_CKPDN;
-  } else {
-    Cfg &= ~MSDC_CFG_CKPDN;
-  }
-  MsdcWrite (MSDC_CFG, Cfg);
-
+STATIC EFI_STATUS MsdcClearFifo (VOID)
+{
   MsdcWrite (MSDC_FIFOCS, MSDC_FIFOCS_CLR);
-  Status = MsdcWaitMask (MSDC_FIFOCS, MSDC_FIFOCS_CLR, FALSE, 10000);
-  if (EFI_ERROR (Status)) {
-    return Status;
+  return MsdcWaitMask (MSDC_FIFOCS, MSDC_FIFOCS_CLR, FALSE, 10000);
+}
+
+
+//  mtk-sd.c msdc_reset_hw(): reset state machines, clear fifo and pending ints, reg contents [clock, bus width are retaine
+STATIC EFI_STATUS MsdcResetController (VOID)
+{
+  UINT32 Cfg = MsdcRead (MSDC_CFG);
+
+  MsdcWrite (MSDC_CFG, Cfg | MSDC_CFG_RST);
+  if (EFI_ERROR (MsdcWaitMask (MSDC_CFG, MSDC_CFG_RST, FALSE, 10000))) {
+    DEBUG ((DEBUG_ERROR, "msdc0 probe: reset timeout\n"));
+    return EFI_TIMEOUT;
   }
-
-  MsdcWrite (SDC_CFG, SdcCfg);
-  MsdcWrite (MSDC_INTEN, MSDC_CMD_INT_MASK | MSDC_DATA_INT_MASK);
-
-  Int = MsdcRead (MSDC_INT);
-  if (Int != 0) {
-    MsdcW1c (Int);
+  if (EFI_ERROR (MsdcClearFifo ())) {
+    DEBUG ((DEBUG_ERROR, "msdc0 probe: FIFO clear timeout\n"));
+    return EFI_TIMEOUT;
   }
-
+  MsdcW1c (MsdcRead (MSDC_INT));
+  MsdcWrite (MSDC_INTEN, MSDC_ALL_INT_MASK);
   return EFI_SUCCESS;
 }
 
-STATIC
-VOID
-MsdcConfigureKnownGoodState (
-  VOID
-  )
+STATIC VOID MsdcStopDma (VOID)
+{
+  UINT32 Ctrl = MsdcRead (MSDC_DMA_CTRL);
+
+  MsdcWrite (MSDC_DMA_CTRL, Ctrl | MSDC_DMA_CTRL_STOP);
+  if (EFI_ERROR (MsdcWaitMask (MSDC_DMA_CFG, MSDC_DMA_CFG_STS, FALSE, 20000))) {
+    DEBUG ((DEBUG_ERROR, "msdc0 probe: DMA stop timeout\n"));
+  }
+  MsdcWrite (MSDC_DMA_CTRL, Ctrl & ~(MSDC_DMA_CTRL_START | MSDC_DMA_CTRL_STOP));
+}
+
+STATIC EFI_STATUS MsdcSetClock (IN UINT32 Hz)
+{
+  UINT32 Cfg;
+  UINT32 Div;
+  UINT32 Src = MSDC_SRC_CLK_HZ;
+
+  if (Hz > MSDC_MAX_CLOCK_HZ) {
+    Hz = MSDC_MAX_CLOCK_HZ;
+  }
+
+  if (Hz >= (Src >> 1)) {
+    Div = 0;
+  } else {
+    Div = (Src + ((Hz << 2) - 1)) / (Hz << 2);
+    if (Div > (MSDC_CFG_CKDIV >> MSDC_CFG_CKDIV_SHIFT)) {
+      Div = MSDC_CFG_CKDIV >> MSDC_CFG_CKDIV_SHIFT;
+    }
+  }
+
+  // gate clk
+  Cfg = MsdcRead (MSDC_CFG);
+  Cfg &= ~MSDC_CFG_CKPDN;
+  MsdcWrite (MSDC_CFG, Cfg);
+
+  // mode 0 = div mode,f=src/(4*div)  | div=0 ---> src/2
+  Cfg &= ~(MSDC_CFG_CKDIV | MSDC_CFG_CKMOD | MSDC_CFG_HS400_CK_MODE);
+  Cfg |= (Div << MSDC_CFG_CKDIV_SHIFT);
+  MsdcWrite (MSDC_CFG, Cfg);
+
+  if (EFI_ERROR (MsdcWaitMask (MSDC_CFG, MSDC_CFG_CKSTB, TRUE, 20000))) {
+    DEBUG ((DEBUG_WARN, "msdc0 probe: clock is not stable\n")); // sosi hui
+  }
+
+  // ungate clk
+  Cfg = MsdcRead (MSDC_CFG);
+  Cfg |= MSDC_CFG_CKPDN;
+  MsdcWrite (MSDC_CFG, Cfg);
+
+  DEBUG ((DEBUG_INFO, "msdc0 probe: clock req=%u div=%u\n", Hz, Div));
+  return EFI_SUCCESS;
+}
+
+STATIC VOID MsdcSetBusWidth (IN UINT32 BusWidth)
+{
+  UINT32 SdcCfg = MsdcRead (SDC_CFG);
+
+  SdcCfg &= ~(SDC_CFG_BUSWIDTH | SDC_CFG_SDIO | SDC_CFG_SDIOIDE);
+  if (BusWidth == 8) {
+    SdcCfg |= (2U << SDC_CFG_BUSWIDTH_SHIFT);
+  } else if (BusWidth == 4) {
+    SdcCfg |= (1U << SDC_CFG_BUSWIDTH_SHIFT);
+  }
+  MsdcWrite (SDC_CFG, SdcCfg);
+}
+// tha delay field in PAD_TUNE0[0xF0) on newer MSDC and PAD_TUNE(0xEC) on older ones, use whichever register keeps written bits
+STATIC VOID MsdcDetectPadTune (VOID)
+{
+  STATIC CONST UINT32  Candidates[] = { MSDC_PAD_TUNE0, MSDC_PAD_TUNE };
+  UINT32               Index;
+  UINT32               Saved;
+  UINT32               Readback;
+
+  for (Index = 0; Index < ARRAY_SIZE (Candidates); Index++) {
+    Saved = MsdcRead (Candidates[Index]);
+    MsdcWrite (Candidates[Index], Saved | MSDC_PAD_TUNE_DATRRDLY);
+    Readback = MsdcRead (Candidates[Index]);
+    MsdcWrite (Candidates[Index], Saved);
+    if ((Readback & MSDC_PAD_TUNE_DATRRDLY) == MSDC_PAD_TUNE_DATRRDLY) {
+      mPadTuneReg = Candidates[Index];
+      break;
+    }
+  }
+  DEBUG ((DEBUG_INFO, "msdc0 probe: pad tune reg %02x (E0=%08x F0=%08x)\n",
+    mPadTuneReg, MsdcRead (MSDC_PAD_TUNE), MsdcRead (MSDC_PAD_TUNE0)));
+}
+
+STATIC EFI_STATUS MsdcInitHw (VOID)
 {
   UINT32 Cfg;
   UINT32 SdcCfg;
-  UINT32 Iocon;
-
-  Cfg = MsdcRead (MSDC_CFG);
-  Cfg |= MSDC_CFG_MODE | MSDC_CFG_PIO;
-  Cfg &= ~MSDC_CFG_CKPDN;
-  MsdcWrite (MSDC_CFG, Cfg);
-
-  SdcCfg = MsdcRead (SDC_CFG);
-  SdcCfg &= ~(SDC_CFG_BUSWIDTH | SDC_CFG_SDIO | SDC_CFG_SDIOIDE | SDC_CFG_DTOC);
-  SdcCfg |= (9U << 24);
-  MsdcWrite (SDC_CFG, SdcCfg);
-
-  Iocon = MsdcRead (MSDC_IOCON) & MSDC_IOCON_DDR50CKD;
-  MsdcWrite (MSDC_IOCON, Iocon);
-  MsdcWrite (MSDC_PAD_TUNE0, 0);
-
-  MsdcWrite (MSDC_INTEN, MSDC_CMD_INT_MASK | MSDC_DATA_INT_MASK);
-}
-
-STATIC
-VOID
-MsdcConfigureDdrTuning (
-  VOID
-  )
-{
-  UINT32 Pb2;
-
-  MsdcWrite (MSDC_PAD_TUNE0, 0);
-  MsdcWrite (MSDC_PATCH_BIT0, MSDC_PB0_DEFAULT_VAL);
-  MsdcWrite (MSDC_PATCH_BIT1, MSDC_PB1_DEFAULT_VAL | MSDC_PB1_DDR_CMD_FIX_SEL);
-
-  Pb2 = MsdcRead (MSDC_PATCH_BIT2);
-  Pb2 &= ~(MSDC_PB2_RESPWAITCNT | MSDC_PB2_RESPSTENSEL | MSDC_PB2_CRCSTSENSEL);
-  Pb2 |= (3U << 2) | (1U << 16) | (1U << 29) | MSDC_PB2_DDR50SEL;
-  MsdcWrite (MSDC_PATCH_BIT2, Pb2);
-}
-
-STATIC
-EFI_STATUS
-MsdcApplyClock (
-  IN UINT32  RequestedHz,
-  IN BOOLEAN Ddr
-  )
-{
-  UINT32 Div;
-  UINT32 Mode;
-  UINT32 Cfg;
-  UINT32 SafeDiv;
   EFI_STATUS Status;
 
-  if (RequestedHz == 0) {
-    return EFI_INVALID_PARAMETER; 
-  }
+  Cfg = MsdcRead (MSDC_CFG);
+  Cfg |= (MSDC_CFG_MODE | MSDC_CFG_CKPDN);
+  Cfg &= ~MSDC_CFG_PIO;
+  MsdcWrite (MSDC_CFG, Cfg);
 
-  if (Ddr) {
-    Mode = 2;
-    if (RequestedHz >= (MSDC0_SOURCE_HZ / 4U)) {
-      Div = 0;
-    } else {
-      Div = (UINT32)(((UINT64)MSDC0_SOURCE_HZ + ((UINT64)RequestedHz * 4U) - 1U) /
-                     ((UINT64)RequestedHz * 4U));
-      Div >>= 1;
-      if (Div == 0) {
-        Div = 1;
-      }
-    }
-  } else if (RequestedHz >= MSDC0_SOURCE_HZ) {
-    Mode = 1; // no div
-    Div  = 0;
-  } else if (RequestedHz >= (MSDC0_SOURCE_HZ / 2U)) {
-    Mode = 0;
-    Div  = 0; //src:2
-  } else {
-    Mode = 0;
-    Div  = (UINT32)(((UINT64)MSDC0_SOURCE_HZ + ((UINT64)RequestedHz * 4U) - 1U) /
-                    ((UINT64)RequestedHz * 4U));
-    if (Div == 0) {
-      Div = 1;
-    }
-    if (Div > 0xFFFU) {
-      Div = 0xFFFU;
-    }
+  Status = MsdcResetController ();
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
   Cfg = MsdcRead (MSDC_CFG);
-  Cfg &= ~(MSDC_CFG_CKDIV | MSDC_CFG_CKMOD);
-  Cfg |= ((Div << 8) & MSDC_CFG_CKDIV);
-  Cfg |= ((Mode << MSDC_CFG_CKMOD_SHIFT) & MSDC_CFG_CKMOD);
-  Cfg |= MSDC_CFG_MODE | MSDC_CFG_PIO;
-  if (Ddr) {
-    Cfg |= MSDC_CFG_SCLK_STOP_DDR;
-  } else {
-    Cfg &= ~MSDC_CFG_SCLK_STOP_DDR;
-  }
-  Cfg &= ~MSDC_CFG_CKPDN;
-
-  // change through a neighboring divider first to avoid a clock glitch
-  SafeDiv = (Div == 0) ? 1 : Div + 1;
-  if (SafeDiv > 0xFFFU) {
-    SafeDiv = 0xFFFU;
-  }
-  MsdcWrite (MSDC_CFG, (Cfg & ~MSDC_CFG_CKDIV) | ((SafeDiv << 8) & MSDC_CFG_CKDIV));
-  Status = MsdcWaitMask (MSDC_CFG, MSDC_CFG_CKSTB, TRUE, 100000);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
+  Cfg |= MSDC_CFG_MODE;
+  Cfg &= ~MSDC_CFG_PIO;
   MsdcWrite (MSDC_CFG, Cfg);
-  Status = MsdcWaitMask (MSDC_CFG, MSDC_CFG_CKSTB, TRUE, 100000);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-  // ершы ыефеу луузы СЛЗВТ сдуфк (САП=02200199)
-  // shit, my bad -_-, heres the normal one below
-  // this state keeps CKPDN clear (CFG=02200199)
+
+  MsdcDetectPadTune ();
+
+  // sampling setup(IOCON/PAD_TUNE0) left by the bl for 8bit SDR50 is kept
+  DEBUG ((DEBUG_INFO, "msdc0 probe: LK state CFG=%08x SDC_CFG=%08x IOCON=%08x TUNE0=%08x\n",
+    MsdcRead (MSDC_CFG), MsdcRead (SDC_CFG), MsdcRead (MSDC_IOCON), MsdcRead (mPadTuneReg)));
+
+  SdcCfg  = MsdcRead (SDC_CFG);
+  SdcCfg &= ~(SDC_CFG_BUSWIDTH | SDC_CFG_SDIO | SDC_CFG_SDIOIDE | SDC_CFG_DTOC);
+  SdcCfg |= (0xFFU << SDC_CFG_DTOC_SHIFT);
+  MsdcWrite (SDC_CFG, SdcCfg);
+
+  MsdcSetClock (MSDC_INIT_CLOCK_HZ);
+
+  MsdcWrite (MSDC_INTEN, MSDC_ALL_INT_MASK);
+  MsdcW1c (MsdcRead (MSDC_INT));
   return EFI_SUCCESS;
 }
 
-STATIC
-UINT32
-MsdcResponseType (
-  IN UINT32 Opcode
-  )
+STATIC UINT32 MsdcResponseType (IN UINT32 Opcode)
 {
-  Opcode &= SDC_CMD_OPC;
-
-  switch (Opcode) {
+  switch (Opcode & SDC_CMD_OPC) {
     case 0:
     case 4:
-      return 0; // no resp
+    case 15:
+      return 0;
     case 2:
     case 9:
-      return 2; // r2 (way too big!)
+    case 10:
+      return 2;
     case 1:
     case 41:
-      return 3; // r3
+    case 58:
+      return 3;
     case 5:
-      return 4; // r4
     case 6:
     case 7:
     case 12:
     case 28:
     case 29:
     case 38:
-      return 7; // r1b
+      return 7;
     default:
-      return 1; // r1/r6/r7
+      return 1;
   }
 }
 
-STATIC
-BOOLEAN
-MsdcCommandHasData (
-  IN UINT32 Opcode,
-  IN UINT32 Argument
-  )
-{
-  Opcode &= SDC_CMD_OPC;
-
-  // MMC CMD8 with arg 0 is SEND_EXT_CSD; its SD CMD8 tho
-  if (Opcode == 8) {
-    return Argument == 0;
-  }
-
-  return (Opcode == 17) || (Opcode == 18) || (Opcode == 21) ||
-         (Opcode == 24) || (Opcode == 25) || (Opcode == 26) ||
-         (Opcode == 27) || (Opcode == 30) || (Opcode == 46) ||
-         (Opcode == 47) || (Opcode == 51);
-}
-
-STATIC
-BOOLEAN
-MsdcCommandIsWrite (
-  IN UINT32 Opcode
-  )
-{
-  Opcode &= SDC_CMD_OPC;
-  return (Opcode == 24) || (Opcode == 25) || (Opcode == 26) || (Opcode == 27);
-}
-
-STATIC
-BOOLEAN
-MsdcCommandIsMultiBlock (
-  IN UINT32 Opcode
-  )
-{
-  Opcode &= SDC_CMD_OPC;
-  return (Opcode == 18) || (Opcode == 25);
-}
-
-STATIC
-UINT32
-MsdcBuildRawCommand (
-  IN UINT32  Opcode,
-  IN UINT32  Argument,
-  IN UINT32  BlockSize,
-  IN BOOLEAN IsWrite
-  )
-{
-  UINT32 Raw;
-
-  Opcode = Opcode & SDC_CMD_OPC;
-  Raw    = Opcode | ((MsdcResponseType (Opcode) << 7) & SDC_CMD_RSPTYP);
-
-  if (Opcode == 12) {
-    Raw |= SDC_CMD_STOP;
-  }
-
-  if (MsdcCommandHasData (Opcode, Argument)) {
-    // DTYPE is bits 12:11, BIT10 is ACMD and its not tha data flag
-    Raw |= MsdcCommandIsMultiBlock (Opcode) ? SDC_CMD_DTYPE_MULTI : SDC_CMD_DTYPE_SINGLE;
-    Raw |= (BlockSize << 16) & SDC_CMD_BLKLEN;
-    if (IsWrite) {
-      Raw |= SDC_CMD_WR;
-    }
-  }
-
-  return Raw;
-}
-
-STATIC
-EFI_STATUS
-MsdcWaitCommand (
-  IN UINT32 Opcode
-  )
-{
-  UINT32 Int;
-
-  for (UINT32 Timeout = 0; Timeout < MSDC_CMD_TIMEOUT_US; ++Timeout) {
-    Int = MsdcRead (MSDC_INT);
-
-    if ((Int & MSDC_INT_CMDTMO) != 0) {
-      DEBUG ((DEBUG_WARN, "MSDC0: CMD%u timeout\n", Opcode));
-      MsdcDebugState ("cmd-timeout-pending");
-      MsdcW1c (Int & MSDC_CMD_INT_MASK);
-      MsdcResetController ();
-      return EFI_TIMEOUT;
-    }
-
-    if ((Int & MSDC_INT_RSPCRCERR) != 0) {
-      DEBUG ((DEBUG_WARN, "MSDC0: CMD%u response CRC error\n", Opcode));
-      MsdcDebugState ("cmd-crc-pending");
-      MsdcW1c (Int & MSDC_CMD_INT_MASK);
-      MsdcResetController ();
-      return EFI_CRC_ERROR;
-    }
-
-    if ((Int & MSDC_INT_CMDRDY) != 0) {
-      MsdcW1c (MSDC_INT_CMDRDY);
-      return EFI_SUCCESS;
-    }
-
-    MicroSecondDelay (1);
-  }
-
-  DEBUG ((DEBUG_WARN, "MSDC0: CMD%u polling timeout\n", Opcode));
-  MsdcDebugState ("cmd-poll-timeout");
-  MsdcResetController ();
-  return EFI_TIMEOUT;
-}
-
-STATIC
-BOOLEAN
-MsdcCommandMayRetry (
-  IN UINT32 Opcode
-  )
+STATIC BOOLEAN MsdcCommandHasData (IN UINT32 Opcode, IN UINT32 Argument)
 {
   switch (Opcode & SDC_CMD_OPC) {
-    case 2:  // ALL_SEND_CID
-    case 3:  // SET_RELATIVE_ADDR 
-    case 7:  // SELECT_CARD 
-    case 8:  // SEND_EXT_CSD 
-    case 9:  // SEND_CSD 
-    case 13: // SEND_STATUS 
-    case 17: // READ_SINGLE_BLOCK 
-    case 18: // READ_MULTIPLE_BLOCK 
+    case 8:
+      return (BOOLEAN)(Argument == 0); // EMMC SEND_EXT_CSD
+    case 17:
+    case 18:
+    case 24:
+    case 25:
       return TRUE;
     default:
       return FALSE;
   }
 }
 
-STATIC
-EFI_STATUS
-EFIAPI
-MsdcSendCommand (
-  IN EFI_MMC_HOST_PROTOCOL *This,
+STATIC EFI_STATUS MsdcWaitCommand (VOID)
+{
+  UINT32 Timeout;
+  UINT32 Int;
+
+  for (Timeout = 0; Timeout < MSDC_CMD_TIMEOUT_US; Timeout++) {
+    Int = MsdcRead (MSDC_INT);
+    if ((Int & MSDC_INT_CMDTMO) != 0) {
+      MsdcW1c (Int & MSDC_CMD_INT_MASK);
+      MsdcResetController ();
+      return EFI_TIMEOUT;
+    }
+    if ((Int & MSDC_INT_RSPCRCERR) != 0) {
+      MsdcW1c (Int & MSDC_CMD_INT_MASK);
+      MsdcResetController ();
+      return EFI_CRC_ERROR;
+    }
+    if ((Int & MSDC_INT_CMDRDY) != 0) {
+      MsdcW1c (MSDC_INT_CMDRDY);
+      return EFI_SUCCESS;
+    }
+    MicroSecondDelay (1);
+  }
+  MsdcResetController ();
+  return EFI_TIMEOUT;
+}
+
+// Blocks==0 --> cmd w.o data phase
+STATIC EFI_STATUS MsdcIssueCommand (
+  IN UINT32   Opcode,
+  IN UINT32   Argument,
+  IN UINT32   Blocks,
+  IN BOOLEAN  IsWrite
+  )
+{
+  UINT32      Rsp     = MsdcResponseType (Opcode);
+  BOOLEAN     HasData = (BOOLEAN)(Blocks != 0);
+  UINT32      Raw;
+  UINT32      BusyMask;
+  UINT32      Try;
+  EFI_STATUS  Status = EFI_SUCCESS;
+
+  Opcode &= SDC_CMD_OPC;
+  Raw = Opcode | (Rsp << SDC_CMD_RSPTYP_SHIFT);
+  if (Opcode == 12) {
+    Raw |= SDC_CMD_STOP;
+  }
+  if (HasData) {
+    Raw |= (Blocks > 1) ? SDC_CMD_DTYPE_MULTI : SDC_CMD_DTYPE_SINGLE;
+    Raw |= (MSDC_BLOCK_SIZE << SDC_CMD_BLKLEN_SHIFT) & SDC_CMD_BLKLEN;
+    if (IsWrite) {
+      Raw |= SDC_CMD_WR;
+    }
+  }
+
+  BusyMask = (HasData || Rsp == 7) ? (SDC_STS_CMDBUSY | SDC_STS_SDCBUSY) : SDC_STS_CMDBUSY;
+
+  mUseCachedResp = FALSE;
+
+  for (Try = 0; Try < 3; Try++) {
+    Status = MsdcWaitMask (SDC_STS, BusyMask, FALSE, MSDC_BUSY_TIMEOUT_US);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "msdc0 probe: busy before CMD%u STS=%08x\n", Opcode, MsdcRead (SDC_STS)));
+      MsdcResetController ();
+      return Status;
+    }
+
+    if (HasData) {
+      if ((MsdcRead (MSDC_FIFOCS) & (MSDC_FIFOCS_RXCNT | MSDC_FIFOCS_TXCNT)) != 0) {
+        MsdcResetController ();
+      }
+      MsdcWrite (SDC_BLK_NUM, Blocks);
+    }
+
+    MsdcW1c (MsdcRead (MSDC_INT));
+    MsdcWrite (SDC_ARG, Argument);
+    MsdcWrite (SDC_CMD, Raw);
+
+    Status = MsdcWaitCommand ();
+    if (Status != EFI_CRC_ERROR || HasData) {
+      break;
+    }
+  }
+
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_VERBOSE, "msdc0 probe: CMD%u arg=%08x failed: %r\n", Opcode, Argument, Status));
+    return Status;
+  }
+
+  if (Rsp == 7) {
+    Status = MsdcWaitMask (SDC_STS, SDC_STS_CMDBUSY | SDC_STS_SDCBUSY, FALSE, MSDC_BUSY_TIMEOUT_US);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "msdc0 probe: CMD%u busy timeout STS=%08x\n", Opcode, MsdcRead (SDC_STS)));
+      return Status;
+    }
+    // DAT0 low =card busy
+    MsdcWaitMask (MSDC_PS, MSDC_PS_DAT0, TRUE, MSDC_DAT0_TIMEOUT_US);
+  }
+
+  return EFI_SUCCESS;
+}
+
+STATIC VOID MsdcSetupDescriptors (IN UINT32 Addr, IN UINT32 Bytes)
+{
+  UINT32 BdCount = (Bytes + MSDC_BD_MAX_LEN - 1) / MSDC_BD_MAX_LEN;
+  UINT32 BdPhys  = (UINT32)mDescPhys + MSDC_DESC_BD_OFF;
+  UINT32 Region  = MSDC_DESC_BD_OFF + (UINT32)sizeof (MT_BDMA_DESC) * MSDC_BD_MAX_NUM;
+  UINT32 Index;
+  UINT32 Len;
+
+  WriteBackInvalidateDataCacheRange ((VOID *)(UINTN)mDescPhys, Region);
+  ZeroMem ((VOID *)(UINTN)mDescPhys, Region);
+
+  for (Index = 0; Index < BdCount; Index++) {
+    Len = (Bytes > MSDC_BD_MAX_LEN) ? MSDC_BD_MAX_LEN : Bytes;
+
+    mDmaBd[Index].BdInfo    = (Index == BdCount - 1) ? BDMA_DESC_EOL : 0;
+    mDmaBd[Index].Next      = (Index == BdCount - 1) ? 0 : (BdPhys + (Index + 1) * (UINT32)sizeof (MT_BDMA_DESC));
+    mDmaBd[Index].Ptr       = Addr;
+    mDmaBd[Index].BdDataLen = Len;
+    mDmaBd[Index].BdInfo   |= ((UINT32)MsdcDmaChecksum ((UINT8 *)&mDmaBd[Index], 16)) << 8;
+
+    Addr  += Len;
+    Bytes -= Len;
+  }
+
+  mDmaGpd->GpdInfo = GPDMA_DESC_HWO | GPDMA_DESC_BDP;
+  mDmaGpd->Next    = (UINT32)mDescPhys + MSDC_DESC_GPD2_OFF;   // 2nd empty GPD is a mandatory
+  mDmaGpd->Ptr     = BdPhys;
+  mDmaGpd->GpdInfo |= ((UINT32)MsdcDmaChecksum ((UINT8 *)mDmaGpd, 16)) << 8;
+
+  WriteBackDataCacheRange ((VOID *)(UINTN)mDescPhys, Region);
+}
+
+STATIC EFI_STATUS MsdcWaitDataDone (VOID)
+{
+  UINT32 Timeout;
+  UINT32 Int;
+
+  for (Timeout = 0; Timeout < MSDC_DATA_TIMEOUT_US; Timeout++) {
+    Int = MsdcRead (MSDC_INT);
+
+    if ((Int & (MSDC_INT_DATTMO | MSDC_INT_DATCRCERR | MSDC_DMA_ERR_MASK)) != 0) {
+      MsdcW1c (Int & (MSDC_INT_DATTMO | MSDC_INT_DATCRCERR | MSDC_DMA_ERR_MASK));
+      DEBUG ((DEBUG_ERROR, "msdc0 probe: data error INT=%08x DMA_CFG=%08x SDC_CFG=%08x IOCON=%08x TUNE0=%08x CFG=%08x\n",
+        Int, MsdcRead (MSDC_DMA_CFG), MsdcRead (SDC_CFG), MsdcRead (MSDC_IOCON), MsdcRead (mPadTuneReg), MsdcRead (MSDC_CFG)));
+      if ((Int & MSDC_INT_DATTMO) != 0) {
+        return EFI_TIMEOUT;
+      }
+      if ((Int & MSDC_INT_DATCRCERR) != 0) {
+        return EFI_CRC_ERROR;
+      }
+      return EFI_DEVICE_ERROR;
+    }
+
+    if ((Int & MSDC_INT_XFER_COMPL) != 0) {
+      MsdcW1c (MSDC_INT_XFER_COMPL);
+      return EFI_SUCCESS;
+    }
+    MicroSecondDelay (1);
+  }
+
+  DEBUG ((DEBUG_ERROR, "msdc0 probe: data wait timeout INT=%08x DMA_CFG=%08x\n", MsdcRead (MSDC_INT), MsdcRead (MSDC_DMA_CFG)));
+  return EFI_TIMEOUT;
+}
+
+// one cmd + one DMA run through bounce buf(<~4GB & page aligned)
+STATIC EFI_STATUS MsdcDataTransfer (
+  IN UINT32   Opcode,
+  IN UINT32   Argument,
+  IN BOOLEAN  IsWrite,
+  IN UINT32   Blocks,
+  IN UINT8    *UserBuf
+  )
+{
+  UINT32      Bytes = Blocks * MSDC_BLOCK_SIZE;
+  UINT32      DmaCfg;
+  UINT32      DmaCtrl;
+  EFI_STATUS  Status;
+
+  if (IsWrite) {
+    CopyMem (mBounce, UserBuf, Bytes);
+    WriteBackDataCacheRange (mBounce, Bytes);
+  } else {
+    WriteBackInvalidateDataCacheRange (mBounce, Bytes);
+  }
+
+  MsdcSetupDescriptors ((UINT32)mBouncePhys, Bytes);
+
+  DmaCfg = MsdcRead (MSDC_DMA_CFG);
+  MsdcWrite (MSDC_DMA_CFG, DmaCfg | MSDC_DMA_CFG_DECSEN);
+
+  DmaCtrl = MSDC_DMA_CTRL_BURST_64B | MSDC_DMA_CTRL_MODE;
+  MsdcWrite (MSDC_DMA_CTRL, DmaCtrl);
+  MsdcWrite (MSDC_DMA_SA_HIGH, 0);
+  MsdcWrite (MSDC_DMA_SA, (UINT32)mDescPhys);
+  MsdcWrite (MSDC_INTEN, MSDC_ALL_INT_MASK);
+
+  Status = MsdcIssueCommand (Opcode, Argument, Blocks, IsWrite);
+  if (EFI_ERROR (Status)) {
+    MsdcStopDma ();
+    return Status;
+  }
+
+  MsdcWrite (MSDC_DMA_CTRL, DmaCtrl | MSDC_DMA_CTRL_START);
+
+  Status = MsdcWaitDataDone ();
+  if (EFI_ERROR (Status)) {
+    MsdcStopDma ();
+    MsdcResetController ();
+    return Status;
+  }
+
+  if (EFI_ERROR (MsdcWaitMask (MSDC_DMA_CFG, MSDC_DMA_CFG_STS, FALSE, 20000))) {
+    DEBUG ((DEBUG_WARN, "msdc0 probe: DMA still active after XFER_COMPL\n"));
+    MsdcStopDma ();
+  } else {
+    MsdcWrite (MSDC_DMA_CTRL, DmaCtrl);
+  }
+
+  if (!IsWrite) {
+    InvalidateDataCacheRange (mBounce, Bytes);
+    CopyMem (UserBuf, mBounce, Bytes);
+  }
+  return EFI_SUCCESS;
+}
+
+STATIC VOID MsdcSetReadDelay (IN UINT32 Dspl, IN UINT32 Delay)
+{
+  UINT32 Iocon = MsdcRead (MSDC_IOCON);
+  UINT32 Pad   = MsdcRead (mPadTuneReg);
+
+  if (Dspl != 0) {
+    Iocon |= MSDC_IOCON_DSPL;
+  } else {
+    Iocon &= ~MSDC_IOCON_DSPL;
+  }
+  Pad &= ~MSDC_PAD_TUNE_DATRRDLY;
+  Pad |= (Delay << MSDC_PAD_TUNE_DATRR_SH) | MSDC_PAD_TUNE_RD_SEL;
+  MsdcWrite (MSDC_IOCON, Iocon);
+  MsdcWrite (mPadTuneReg, Pad);
+}
+
+// SWEEP
+STATIC VOID MsdcTuneRead (VOID)
+{
+  UINT32   Dspl;
+  UINT32   Delay;
+  UINT32   Run;
+  UINT32   Start = 0;
+  UINT32   BestRun = 0;
+  UINT32   BestStart = 0;
+  UINT32   BestDspl = 0;
+  BOOLEAN  Ok;
+  UINT32   SavedIocon = MsdcRead (MSDC_IOCON);
+  UINT32   SavedPad   = MsdcRead (mPadTuneReg);
+
+  mTuneDone = TRUE;
+
+  for (Dspl = 0; Dspl < 2; Dspl++) {
+    Run = 0;
+    for (Delay = 0; Delay < 32; Delay++) {
+      MsdcSetReadDelay (Dspl, Delay);
+      Ok = (BOOLEAN)(!EFI_ERROR (MsdcDataTransfer (17, 0, FALSE, 1, mTuneBuf)) &&
+                     !EFI_ERROR (MsdcDataTransfer (17, 0, FALSE, 1, mTuneBuf)));
+      if (Ok) {
+        if (Run == 0) {
+          Start = Delay;
+        }
+        Run++;
+      }
+      if ((!Ok || Delay == 31) && Run > BestRun) {
+        BestRun   = Run;
+        BestStart = Start;
+        BestDspl  = Dspl;
+      }
+      if (!Ok) {
+        Run = 0;
+      }
+    }
+  }
+
+  if (BestRun == 0) {
+    DEBUG ((DEBUG_ERROR, "msdc0 probe: read tuning found no window\n"));
+    MsdcWrite (MSDC_IOCON, SavedIocon);
+    MsdcWrite (mPadTuneReg, SavedPad);
+    return;
+  }
+  MsdcSetReadDelay (BestDspl, BestStart + BestRun / 2);
+  DEBUG ((DEBUG_INFO, "msdc0 probe: read tune dspl=%u delay=%u (window %u)\n", BestDspl, BestStart + BestRun / 2, BestRun));
+}
+
+STATIC EFI_STATUS MsdcTransfer (
+  IN BOOLEAN  IsWrite,
+  IN EFI_LBA  Lba,
+  IN UINTN    Length,
+  IN UINT8    *Buffer
+  )
+{
+  UINT32      Remaining = (UINT32)(Length / MSDC_BLOCK_SIZE);
+  UINT32      Argument;
+  UINT32      FirstOpcode = 0;
+  UINT32      Chunk;
+  UINT32      Opcode;
+  BOOLEAN     AutoStop;
+  BOOLEAN     LastWasMulti = FALSE;
+  UINT32      Attempt;
+  EFI_STATUS  Status = EFI_SUCCESS;
+
+  if (mPendingValid) {
+    Argument      = mPendingArg;
+    FirstOpcode   = mPendingOpcode;
+  } else {
+    Argument      = (UINT32)Lba;
+  }
+  mPendingValid  = FALSE;
+  mStopHandled   = FALSE;
+
+  while (Remaining != 0) {
+    Chunk = (Remaining > mBounceBlocks) ? mBounceBlocks : Remaining;
+
+    if (FirstOpcode == 8) {
+      Opcode = 8;
+      Chunk  = 1;
+    } else if (Chunk == 1) {
+      Opcode = IsWrite ? 24 : 17;
+    } else {
+      Opcode = IsWrite ? 25 : 18;
+    }
+
+    AutoStop      = (BOOLEAN)(mPredefBlocks != 0 && mPredefBlocks == Chunk);
+    mPredefBlocks = 0;
+
+    for (Attempt = 0; Attempt < 2; Attempt++) {
+      Status = MsdcDataTransfer (Opcode, Argument, IsWrite, Chunk, Buffer);
+
+      if (Chunk > 1 && !AutoStop) {
+        // on failure emmc must be stopped too
+        EFI_STATUS StopStatus = MsdcIssueCommand (12, 0, 0, FALSE);
+        if (EFI_ERROR (StopStatus)) {
+          DEBUG ((DEBUG_WARN, "msdc0 probe: CMD12 failed: %r\n", StopStatus));
+        }
+      }
+
+      if (!EFI_ERROR (Status) || IsWrite || mTuneDone || (Status != EFI_CRC_ERROR && Status != EFI_TIMEOUT)) {
+        break;
+      }
+      DEBUG ((DEBUG_WARN, "msdc0 probe: read error %r, tuning sampling\n", Status));
+      MsdcTuneRead ();
+    }
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "msdc0 probe: %a CMD%u arg=%08x blocks=%u failed: %r\n",
+        IsWrite ? "write" : "read", Opcode, Argument, Chunk, Status));
+      mStopHandled = FALSE;
+      return Status;
+    }
+
+    LastWasMulti = (BOOLEAN)(Chunk > 1);
+    FirstOpcode  = 0;
+    Argument    += Chunk;
+    Buffer      += (UINTN)Chunk * MSDC_BLOCK_SIZE;
+    Remaining   -= Chunk;
+  }
+
+  // host layer may send its own CMD12 afterwards, its already done
+  mStopHandled = LastWasMulti;
+  return EFI_SUCCESS;
+}
+
+STATIC EFI_STATUS EFIAPI MsdcSendCommand (
+  IN EFI_MMC_HOST_PROTOCOL  *This,
   IN MMC_CMD                MmcCmd,
   IN UINT32                 Argument
   )
 {
-  UINT32 RequestedOpcode;
-  UINT32 Opcode;
-  UINT32 Raw;
-  UINT32 Int;
-  EFI_STATUS Status;
+  UINT32      Opcode = MmcCmd & SDC_CMD_OPC;
+  EFI_STATUS  Status;
 
   (VOID)This;
-  RequestedOpcode = MmcCmd & SDC_CMD_OPC;
 
-  if ((RequestedOpcode == 12) && mSuppressEmulatedStop) {
-    mSuppressEmulatedStop = FALSE;
-    DEBUG ((DEBUG_INFO, "MSDC0: CMD12 emulated stop after single-block sequence\n"));
+  DEBUG ((DEBUG_VERBOSE, "msdc0 probe: CMD%u ARG=%08x\n", Opcode, Argument));
+
+  if (Opcode == 12 && mStopHandled) {
+    mStopHandled   = FALSE;
+    mUseCachedResp = TRUE;
+    ZeroMem (mCachedResp, sizeof (mCachedResp));
+    mCachedResp[0] = MSDC_FAKE_R1_READY;
+    return EFI_SUCCESS;
+  }
+  mStopHandled = FALSE;
+
+  if (MsdcCommandHasData (Opcode, Argument)) {
+    mPendingValid  = TRUE;
+    mPendingOpcode = Opcode;
+    mPendingArg    = Argument;
+    mUseCachedResp = TRUE;
+    ZeroMem (mCachedResp, sizeof (mCachedResp));
+    mCachedResp[0] = MSDC_FAKE_R1_READY;
     return EFI_SUCCESS;
   }
 
-  Opcode          = RequestedOpcode;
-  mLastCommand    = Opcode;
-  mPendingMultiBlock = MsdcCommandIsMultiBlock (RequestedOpcode);
-  mPendingMultiArgument = Argument;
-
-  // the host protocol gives the data len after SendCommand()
-  if (Opcode == 18) {
-    Opcode = 17;
-  } else if (Opcode == 25) {
-    Opcode = 24;
+  mPendingValid = FALSE;
+  if (Opcode == 23) {
+    mPredefBlocks = Argument & 0xFFFF;
   }
-  mLastCommand = Opcode;
 
-  Status = MsdcWaitMask (
-             SDC_STS,
-             SDC_STS_CMDBUSY | SDC_STS_SDCBUSY,
-             FALSE,
-             MSDC_CMD_TIMEOUT_US
-             );
+  Status = MsdcIssueCommand (Opcode, Argument, 0, FALSE);
   if (EFI_ERROR (Status)) {
-    MsdcResetController ();
-    mPendingMultiBlock = FALSE;
-    return Status;
+    DEBUG ((DEBUG_ERROR, "msdc0 probe: CMD%u failed. STS=%08x INT=%08x\n", Opcode, MsdcRead (SDC_STS), MsdcRead (MSDC_INT)));
   }
-
-  Int = MsdcRead (MSDC_INT);
-  if (Int != 0) {
-    MsdcW1c (Int);
-  }
-
-  if (MsdcCommandHasData (Opcode, Argument)) {
-    MsdcWrite (MSDC_FIFOCS, MSDC_FIFOCS_CLR);
-    Status = MsdcWaitMask (MSDC_FIFOCS, MSDC_FIFOCS_CLR, FALSE, 10000);
-    if (EFI_ERROR (Status)) {
-      MsdcResetController ();
-      mPendingMultiBlock = FALSE;
-      return Status;
-    }
-    MsdcWrite (SDC_BLK_NUM, 1);
-  } else {
-    MsdcWrite (SDC_BLK_NUM, 0);
-  }
-
-  MsdcWrite (SDC_ARG, Argument);
-  Raw = MsdcBuildRawCommand (
-           Opcode,
-           Argument,
-           MSDC_BLOCK_SIZE,
-           MsdcCommandIsWrite (Opcode)
-           );
-  DEBUG ((DEBUG_INFO, "MSDC0: CMD%u wire CMD%u ARG=%08x RAW=%08x\n", RequestedOpcode, Opcode, Argument, Raw));
-  MsdcWrite (SDC_CMD, Raw);
-
-  Status = MsdcWaitCommand (Opcode);
-  if (EFI_ERROR (Status)) {
-    if ((Status == EFI_CRC_ERROR) &&
-        MsdcCommandMayRetry (Opcode) &&
-        (mCommandRetryDepth < 2))
-    {
-      ++mCommandRetryDepth;
-      DEBUG ((DEBUG_WARN, "MSDC0: retry CMD%u after response CRC error\n", Opcode));
-      Status = MsdcSendCommand (This, MmcCmd, Argument);
-      --mCommandRetryDepth;
-    }
-    mPendingMultiBlock = FALSE;
-    return Status;
-  }
-
-  if (MsdcResponseType (Opcode) == 7) {
-    Status = MsdcWaitMask (
-               SDC_STS,
-               SDC_STS_CMDBUSY | SDC_STS_SDCBUSY,
-               FALSE,
-               MSDC_CMD_TIMEOUT_US
-               );
-    if (EFI_ERROR (Status)) {
-      MsdcResetController ();
-      mPendingMultiBlock = FALSE;
-      return Status;
-    }
-  }
-
-  return EFI_SUCCESS;
+  return Status;
 }
 
-STATIC
-EFI_STATUS
-EFIAPI
-MsdcReceiveResponse (
-  IN EFI_MMC_HOST_PROTOCOL *This,
-  IN MMC_RESPONSE_TYPE      Type,
-  OUT UINT32               *Buffer
+STATIC EFI_STATUS EFIAPI MsdcReceiveResponse (
+  IN  EFI_MMC_HOST_PROTOCOL  *This,
+  IN  MMC_RESPONSE_TYPE      Type,
+  OUT UINT32                 *Buffer
   )
 {
   (VOID)This;
 
   if (Buffer == NULL) {
     return EFI_INVALID_PARAMETER;
+  }
+
+  if (mUseCachedResp) {
+    if (Type == MMC_RESPONSE_TYPE_R2) {
+      CopyMem (Buffer, mCachedResp, sizeof (mCachedResp));
+    } else {
+      Buffer[0] = mCachedResp[0];
+    }
+    return EFI_SUCCESS;
   }
 
   if (Type == MMC_RESPONSE_TYPE_R2) {
-    Buffer[0] = MsdcRead (SDC_RESP3);
-    Buffer[1] = MsdcRead (SDC_RESP2);
-    Buffer[2] = MsdcRead (SDC_RESP1);
-    Buffer[3] = MsdcRead (SDC_RESP0);
+    // UEFI expects least significant word first
+    Buffer[0] = MsdcRead (SDC_RESP0);
+    Buffer[1] = MsdcRead (SDC_RESP1);
+    Buffer[2] = MsdcRead (SDC_RESP2);
+    Buffer[3] = MsdcRead (SDC_RESP3);
   } else {
     Buffer[0] = MsdcRead (SDC_RESP0);
   }
-
   return EFI_SUCCESS;
 }
 
-STATIC
-EFI_STATUS
-MsdcCheckDataStatus (
-  IN UINT32 Int
+STATIC EFI_STATUS EFIAPI MsdcReadBlockData (
+  IN  EFI_MMC_HOST_PROTOCOL  *This,
+  IN  EFI_LBA                Lba,
+  IN  UINTN                  Length,
+  OUT UINT32                 *Buffer
   )
 {
-  if ((Int & MSDC_INT_DATTMO) != 0) {
-    MsdcW1c (Int & MSDC_DATA_INT_MASK);
-    DEBUG ((DEBUG_WARN, "MSDC0: CMD%u data timeout\n", mLastCommand));
-    MsdcDebugState ("data-timeout");
-    MsdcResetController ();
-    return EFI_TIMEOUT;
-  }
+  (VOID)This;
 
-  if ((Int & MSDC_INT_DATCRCERR) != 0) {
-    MsdcW1c (Int & MSDC_DATA_INT_MASK);
-    DEBUG ((DEBUG_WARN, "MSDC0: CMD%u data CRC error\n", mLastCommand));
-    MsdcDebugState ("data-crc");
-    MsdcResetController ();
-    return EFI_CRC_ERROR;
-  }
-
-  return EFI_SUCCESS;
-}
-
-STATIC
-EFI_STATUS
-MsdcReadOneBlockData (
-  IN UINT8 *BytePtr
-  )
-{
-  UINTN      Remaining;
-  BOOLEAN    TransferComplete;
-  EFI_STATUS Status;
-
-  Remaining        = MSDC_BLOCK_SIZE;
-  TransferComplete = FALSE;
-
-  for (UINT32 Timeout = 0; Timeout < MSDC_DATA_TIMEOUT_US; ++Timeout) {
-    UINT32 Fifo;
-    UINT32 Count;
-    UINT32 Int;
-
-    Fifo  = MsdcRead (MSDC_FIFOCS);
-    Count = Fifo & MSDC_FIFOCS_RXCNT;
-
-    // read every available complete word; dont wait for a 64byte threshold
-    while ((Count >= 4) && (Remaining >= 4)) {
-      *(UINT32 *)BytePtr = MsdcRead (MSDC_RXDATA);
-      BytePtr += 4;
-      Remaining -= 4;
-      Count -= 4;
-    }
-
-    // byte accesses are reserved for the final 1..3 bytes only
-    if ((Remaining < 4) && (Count >= Remaining) && (Remaining != 0)) {
-      while (Remaining != 0) {
-        *BytePtr++ = MmioRead8 (MSDC0_BASE + MSDC_RXDATA);
-        --Remaining;
-        --Count;
-      }
-    }
-
-    Int = MsdcRead (MSDC_INT);
-    Status = MsdcCheckDataStatus (Int);
-    if (EFI_ERROR (Status)) {
-      return Status;
-    }
-    if ((Int & MSDC_INT_XFER_COMPL) != 0) {
-      TransferComplete = TRUE;
-    }
-
-    if (TransferComplete && (Remaining == 0)) {
-      MsdcW1c (MSDC_INT_XFER_COMPL);
-      return EFI_SUCCESS;
-    }
-
-    MicroSecondDelay (1);
-  }
-
-  MsdcResetController ();
-  return EFI_TIMEOUT;
-}
-
-STATIC
-EFI_STATUS
-MsdcGetBlockAddressStep (
-  IN EFI_LBA Lba,
-  OUT UINT32 *Step
-  )
-{
-  if (Step == NULL) {
+  if (Buffer == NULL || Length == 0 || (Length % MSDC_BLOCK_SIZE) != 0) {
     return EFI_INVALID_PARAMETER;
   }
-
-  if (mPendingMultiArgument == (UINT32)Lba) {
-    *Step = 1;
-    return EFI_SUCCESS;
-  }
-
-  if ((Lba <= (0xFFFFFFFFULL / MSDC_BLOCK_SIZE)) &&
-      (mPendingMultiArgument == (UINT32)(Lba * MSDC_BLOCK_SIZE)))
-  {
-    *Step = MSDC_BLOCK_SIZE;
-    return EFI_SUCCESS;
-  }
-
-  return EFI_UNSUPPORTED;
+  DEBUG ((DEBUG_VERBOSE, "msdc0 probe: read LBA=%Lu Len=%Lu\n", (UINT64)Lba, (UINT64)Length));
+  return MsdcTransfer (FALSE, Lba, Length, (UINT8 *)Buffer);
 }
 
-STATIC
-EFI_STATUS
-EFIAPI
-MsdcReadBlockData (
-  IN EFI_MMC_HOST_PROTOCOL *This,
+STATIC EFI_STATUS EFIAPI MsdcWriteBlockData (
+  IN EFI_MMC_HOST_PROTOCOL  *This,
   IN EFI_LBA                Lba,
   IN UINTN                  Length,
-  OUT UINT32               *Buffer
+  IN UINT32                 *Buffer
   )
 {
-  UINTN      BlockCount;
-  UINTN      Block;
-  UINT32     Argument;
-  UINT32     BaseArgument;
-  UINT32     AddressStep;
-  EFI_STATUS Status;
-
   (VOID)This;
-  DEBUG ((
-    DEBUG_INFO,
-    "MSDC0: ReadBlockData LBA=%Lu Length=%Lu Buffer=%p\n", // remove after tests
-    (UINT64)Lba,
-    (UINT64)Length,
-    Buffer
-    ));
 
-  if (Buffer == NULL) {
-    DEBUG ((DEBUG_ERROR, "MSDC0: ReadBlockData invalid buffer\n"));
+  if (Buffer == NULL || Length == 0 || (Length % MSDC_BLOCK_SIZE) != 0) {
     return EFI_INVALID_PARAMETER;
   }
-  if (Length == 0) {
-    mPendingMultiBlock = FALSE;
-    return EFI_SUCCESS;
-  }
-  if ((Length % MSDC_BLOCK_SIZE) != 0) {
-    DEBUG ((DEBUG_ERROR, "MSDC0: ReadBlockData unsupported length=%Lu\n", (UINT64)Length));
-    return EFI_UNSUPPORTED;
-  }
-  if (Length != MSDC_BLOCK_SIZE) {
-    if (!mPendingMultiBlock || ((Length % MSDC_BLOCK_SIZE) != 0)) {
-      return EFI_UNSUPPORTED;
-    }
-    Status = MsdcGetBlockAddressStep (Lba, &AddressStep);
-    if (EFI_ERROR (Status)) {
-      mPendingMultiBlock = FALSE;
-      return Status;
-    }
-  } else {
-    AddressStep = 1;
-  }
-
-  BlockCount = Length / MSDC_BLOCK_SIZE;
-  BaseArgument = mPendingMultiArgument;
-  for (Block = 0; Block < BlockCount; ++Block) {
-    if (Block != 0) {
-      Argument = BaseArgument + ((UINT32)Block * AddressStep);
-      Status = MsdcSendCommand (This, (MMC_CMD)17, Argument);
-      if (EFI_ERROR (Status)) {
-        mPendingMultiBlock = FALSE;
-        return Status;
-      }
-    }
-
-    Status = MsdcReadOneBlockData (
-               (UINT8 *)Buffer + (Block * MSDC_BLOCK_SIZE)
-               );
-    if (EFI_ERROR (Status)) {
-      mPendingMultiBlock = FALSE;
-      return Status;
-    }
-  }
-
-  mSuppressEmulatedStop = (BOOLEAN)(BlockCount > 1);
-  mPendingMultiBlock = FALSE;
-  return EFI_SUCCESS;
+  DEBUG ((DEBUG_VERBOSE, "msdc0 probe: write LBA=%Lu Len=%Lu\n", (UINT64)Lba, (UINT64)Length));
+  return MsdcTransfer (TRUE, Lba, Length, (UINT8 *)Buffer);
 }
 
-STATIC
-EFI_STATUS
-MsdcWriteOneBlockData (
-  IN UINT8 *BytePtr
-  )
-{
-  UINTN      Remaining;
-  BOOLEAN    TransferComplete;
-  EFI_STATUS Status;
-
-  Remaining        = MSDC_BLOCK_SIZE;
-  TransferComplete = FALSE;
-
-  for (UINT32 Timeout = 0; Timeout < MSDC_DATA_TIMEOUT_US; ++Timeout) {
-    UINT32 Fifo;
-    UINT32 Used;
-    UINT32 Chunk;
-    UINT32 Int;
-
-    Fifo      = MsdcRead (MSDC_FIFOCS);
-    Used      = (Fifo & MSDC_FIFOCS_TXCNT) >> 16;
-
-    // the comboA PIO path is fed only when FIFO empty
-    if ((Used == 0) && (Remaining != 0)) {
-      Chunk = (Remaining >= MSDC_FIFO_SIZE) ? MSDC_FIFO_SIZE : (UINT32)Remaining;
-
-      for (UINT32 Words = Chunk / 4; Words != 0; --Words) {
-        MsdcWrite (MSDC_TXDATA, *(UINT32 *)BytePtr);
-        BytePtr += 4;
-        Remaining -= 4;
-      }
-      for (UINT32 Bytes = Chunk % 4; Bytes != 0; --Bytes) {
-        MmioWrite8 (MSDC0_BASE + MSDC_TXDATA, *BytePtr++);
-        --Remaining;
-      }
-    }
-
-    Int = MsdcRead (MSDC_INT);
-    Status = MsdcCheckDataStatus (Int);
-    if (EFI_ERROR (Status)) {
-      return Status;
-    }
-    if ((Int & MSDC_INT_XFER_COMPL) != 0) {
-      TransferComplete = TRUE;
-    }
-
-    Used = (MsdcRead (MSDC_FIFOCS) & MSDC_FIFOCS_TXCNT) >> 16;
-    if (TransferComplete && (Remaining == 0) && (Used == 0)) {
-      MsdcW1c (MSDC_INT_XFER_COMPL);
-      return EFI_SUCCESS;
-    }
-
-    MicroSecondDelay (1);
-  }
-
-  MsdcResetController ();
-  return EFI_TIMEOUT;
-}
-
-STATIC
-EFI_STATUS
-EFIAPI
-MsdcWriteBlockData (
-  IN EFI_MMC_HOST_PROTOCOL *This,
-  IN EFI_LBA                Lba,
-  IN UINTN                  Length,
-  IN UINT32                *Buffer
-  )
-{
-  UINTN      BlockCount;
-  UINTN      Block;
-  UINT32     Argument;
-  UINT32     BaseArgument;
-  UINT32     AddressStep;
-  EFI_STATUS Status;
-
-  (VOID)This;
-  (VOID)Lba;
-
-  if (Buffer == NULL) {
-    return EFI_INVALID_PARAMETER;
-  }
-  if (Length == 0) {
-    mPendingMultiBlock = FALSE;
-    return EFI_SUCCESS;
-  }
-  if ((Length % MSDC_BLOCK_SIZE) != 0) {
-    return EFI_UNSUPPORTED;
-  }
-  if (Length != MSDC_BLOCK_SIZE) {
-    if (!mPendingMultiBlock || ((Length % MSDC_BLOCK_SIZE) != 0)) {
-      return EFI_UNSUPPORTED;
-    }
-    Status = MsdcGetBlockAddressStep (Lba, &AddressStep);
-    if (EFI_ERROR (Status)) {
-      mPendingMultiBlock = FALSE;
-      return Status;
-    }
-  } else {
-    AddressStep = 1;
-  }
-
-  BlockCount = Length / MSDC_BLOCK_SIZE;
-  BaseArgument = mPendingMultiArgument;
-  for (Block = 0; Block < BlockCount; ++Block) {
-    if (Block != 0) {
-      Argument = BaseArgument + ((UINT32)Block * AddressStep);
-      Status = MsdcSendCommand (This, (MMC_CMD)24, Argument);
-      if (EFI_ERROR (Status)) {
-        mPendingMultiBlock = FALSE;
-        return Status;
-      }
-    }
-
-    Status = MsdcWriteOneBlockData (
-               (UINT8 *)Buffer + (Block * MSDC_BLOCK_SIZE)
-               );
-    if (EFI_ERROR (Status)) {
-      mPendingMultiBlock = FALSE;
-      return Status;
-    }
-  }
-
-  mSuppressEmulatedStop = (BOOLEAN)(BlockCount > 1);
-  mPendingMultiBlock = FALSE;
-  return EFI_SUCCESS;
-}
-
-STATIC
-EFI_STATUS
-EFIAPI
-MsdcSetIos (
-  IN EFI_MMC_HOST_PROTOCOL *This,
+STATIC EFI_STATUS EFIAPI MsdcSetIos (
+  IN EFI_MMC_HOST_PROTOCOL  *This,
   IN UINT32                 BusClockFreq,
   IN UINT32                 BusWidth,
   IN UINT32                 TimingMode
   )
 {
-  UINT32 SdcCfg;
-  UINT32 Width;
-  UINT32 Iocon;
-  BOOLEAN Ddr;
-
   (VOID)This;
-  Ddr = FALSE;
 
-#if MSDC_FORCE_SDR_FALLBACK
-  if ((TimingMode == EMMCHS52DDR1V2) || (TimingMode == EMMCHS52DDR1V8)) {
-    DEBUG ((DEBUG_WARN, "MSDC0: rejecting DDR timing for SDR fallback probe\n"));
-    return EFI_UNSUPPORTED;
-  }
-#endif
-
-  // dont let MmcDxe switch the card to a mode this PIO host does not drive
-  switch (TimingMode) {
-    case EMMCHS52DDR1V8:
-      Ddr = TRUE;
-      break;
-    case EMMCHS52DDR1V2:    // HS52  52Mhz DDR 1.2V
-    case EMMCHS200SDR1V8:	// HS200 200Mhz SDR 1.8V
-    case EMMCHS200SDR1V2:	// HS200 200Mhz SDR 1.2V , wait why hs200 is sdr only? nvm
-    case EMMCHS400DDR1V8:	// HS400 400Mhz DDR 1.8V
-    case EMMCHS400DDR1V2:	// HS400 400Mhz DDR 1.2V
-      return EFI_UNSUPPORTED; // kys
-    default:
-      break;
+  DEBUG ((DEBUG_INFO, "msdc0 probe: SetIos freq=%u width=%u timing=%u\n", BusClockFreq, BusWidth, TimingMode));
+  if (TimingMode >= 3) {
+    DEBUG ((DEBUG_WARN, "msdc0 probe: DDR/HS200/HS400 timing %u isnt supported by this driver\n", TimingMode));
   }
 
-  if ((BusWidth != 1) && (BusWidth != 4) && (BusWidth != 8)) {
-    return EFI_UNSUPPORTED;
+  MsdcSetBusWidth (BusWidth);
+  if (BusClockFreq != 0) {
+    MsdcSetClock (BusClockFreq);
   }
-  if (BusClockFreq == 0) {
-    BusClockFreq = 400000;
-  }
-
-  switch (BusWidth) {
-    case 1:
-      Width = 0;
-      break;
-    case 4:
-      Width = 1;
-      break;
-    case 8:
-      Width = 2;
-      break;
-    default:
-      return EFI_UNSUPPORTED;
-  }
-
-  SdcCfg = MsdcRead (SDC_CFG);
-  SdcCfg &= ~SDC_CFG_BUSWIDTH;
-  SdcCfg &= ~SDC_CFG_SDIO;
-  SdcCfg &= ~SDC_CFG_SDIOIDE;
-  SdcCfg |= Width << 16;
-  MsdcWrite (SDC_CFG, SdcCfg);
-
-  Iocon = MsdcRead (MSDC_IOCON);
-  if (Ddr) {
-    Iocon |= MSDC_IOCON_DDR50CKD;
-    MsdcConfigureDdrTuning ();
-  }
-  MsdcWrite (MSDC_IOCON, Iocon);
-
-  return MsdcApplyClock (BusClockFreq, Ddr);
+  return EFI_SUCCESS;
 }
 
-STATIC
-BOOLEAN
-EFIAPI
-MsdcIsCardPresent (
-  IN EFI_MMC_HOST_PROTOCOL *This
-  )
+STATIC BOOLEAN EFIAPI MsdcIsCardPresent (IN EFI_MMC_HOST_PROTOCOL *This)
 {
   (VOID)This;
   return TRUE;
 }
 
-STATIC
-BOOLEAN
-EFIAPI
-MsdcIsReadOnly (
-  IN EFI_MMC_HOST_PROTOCOL *This
-  )
+STATIC BOOLEAN EFIAPI MsdcIsReadOnly (IN EFI_MMC_HOST_PROTOCOL *This)
 {
   (VOID)This;
   return FALSE;
 }
 
-STATIC
-EFI_STATUS
-EFIAPI
-MsdcBuildDevicePath (
-  IN EFI_MMC_HOST_PROTOCOL     *This,
+STATIC BOOLEAN EFIAPI MsdcIsMultiBlock (IN EFI_MMC_HOST_PROTOCOL *This)
+{
+  (VOID)This;
+  return TRUE;
+}
+
+STATIC EFI_STATUS EFIAPI MsdcBuildDevicePath (
+  IN  EFI_MMC_HOST_PROTOCOL   *This,
   OUT EFI_DEVICE_PATH_PROTOCOL **DevicePath
   )
 {
   VENDOR_DEVICE_PATH *VendorNode;
 
   (VOID)This;
-
   if (DevicePath == NULL) {
-    return EFI_INVALID_PARAMETER; 
+    return EFI_INVALID_PARAMETER;
   }
-
-  VendorNode = (VENDOR_DEVICE_PATH *)CreateDeviceNode (
-                                       HARDWARE_DEVICE_PATH,
-                                       HW_VENDOR_DP,
-                                       sizeof (VENDOR_DEVICE_PATH)
-                                       );
+  VendorNode = (VENDOR_DEVICE_PATH *)CreateDeviceNode (HARDWARE_DEVICE_PATH, HW_VENDOR_DP, sizeof (VENDOR_DEVICE_PATH));
   if (VendorNode == NULL) {
     return EFI_OUT_OF_RESOURCES;
   }
-
   CopyMem (&VendorNode->Guid, &gEfiCallerIdGuid, sizeof (EFI_GUID));
   *DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)VendorNode;
   return EFI_SUCCESS;
 }
 
-STATIC
-EFI_STATUS
-EFIAPI
-MsdcNotifyState (
-  IN EFI_MMC_HOST_PROTOCOL *This,
+STATIC EFI_STATUS EFIAPI MsdcNotifyState (
+  IN EFI_MMC_HOST_PROTOCOL  *This,
   IN MMC_STATE              State
   )
 {
   (VOID)This;
   (VOID)State;
   return EFI_SUCCESS;
-}
-
-STATIC
-BOOLEAN
-EFIAPI
-MsdcIsMultiBlock (
-  IN EFI_MMC_HOST_PROTOCOL *This
-  )
-{
-  (VOID)This;
-  return TRUE;
 }
 
 STATIC EFI_MMC_HOST_PROTOCOL mMsdcHost = {
@@ -1174,37 +994,55 @@ STATIC EFI_MMC_HOST_PROTOCOL mMsdcHost = {
   MsdcIsMultiBlock
 };
 
-EFI_STATUS
-EFIAPI
-Msdc0EntryPoint (
-  IN EFI_HANDLE       ImageHandle,
-  IN EFI_SYSTEM_TABLE *SystemTable
+EFI_STATUS EFIAPI Msdc0EntryPoint (
+  IN EFI_HANDLE        ImageHandle,
+  IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  EFI_STATUS Status;
-  EFI_HANDLE Handle;
+  EFI_STATUS            Status;
+  EFI_HANDLE            Handle = NULL;
+  EFI_PHYSICAL_ADDRESS  Addr;
+  UINTN                 Pages;
 
   (VOID)ImageHandle;
   (VOID)SystemTable;
 
-  Status = MsdcResetController ();
+  // descrs: one page below 4GB(GPD0 @0x00, GPD1 @0x40, BD @0x80)
+  Addr   = 0xFFFFFFFFULL;
+  Status = gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesData, 1, &Addr);
   if (EFI_ERROR (Status)) {
     return Status;
   }
-
-  MsdcConfigureKnownGoodState ();
-  Status = MsdcSetIos (&mMsdcHost, 400000, 1, EMMCBACKWARD);
+  mDescPhys = Addr;
+  ZeroMem ((VOID *)(UINTN)mDescPhys, EFI_PAGE_SIZE);
+  mDmaGpd = (MT_GPDMA_DESC *)(UINTN)mDescPhys;
+  mDmaBd  = (MT_BDMA_DESC *)(UINTN)(mDescPhys + MSDC_DESC_BD_OFF);
+  for (Pages = MSDC_BOUNCE_PAGES; Pages >= 8; Pages >>= 1) {
+    Addr   = 0xFFFFFFFFULL;
+    Status = gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesData, Pages, &Addr);
+    if (!EFI_ERROR (Status)) {
+      break;
+    }
+  }
   if (EFI_ERROR (Status)) {
+    gBS->FreePages (mDescPhys, 1);
     return Status;
   }
+  mBouncePhys   = Addr;
+  mBounce       = (UINT8 *)(UINTN)mBouncePhys;
+  mBounceBlocks = (UINT32)((Pages * EFI_PAGE_SIZE) / MSDC_BLOCK_SIZE);
+  if (mBounceBlocks > (MSDC_BD_MAX_LEN * MSDC_BD_MAX_NUM) / MSDC_BLOCK_SIZE) {
+    mBounceBlocks = (MSDC_BD_MAX_LEN * MSDC_BD_MAX_NUM) / MSDC_BLOCK_SIZE;
+  }
 
-  MsdcDebugState ("ready");
-
-  Handle = NULL;
-  return gBS->InstallMultipleProtocolInterfaces (
-               &Handle,
-               &gEmbeddedMmcHostProtocolGuid,
-               &mMsdcHost,
-               NULL
-               );
+  Status = MsdcInitHw ();
+  if (EFI_ERROR (Status)) {
+    gBS->FreePages (mBouncePhys, Pages);
+    gBS->FreePages (mDescPhys, 1);
+    return Status;
+  }
+  MsdcSetBusWidth (1);
+  DEBUG ((DEBUG_INFO, "msdc0 probe: init done, desc=%08x bounce=%08x blocks=%u\n",
+    (UINT32)mDescPhys, (UINT32)mBouncePhys, mBounceBlocks));
+  return gBS->InstallMultipleProtocolInterfaces (&Handle, &gEmbeddedMmcHostProtocolGuid, &mMsdcHost, NULL);
 }

@@ -14,6 +14,7 @@
   EmbeddedPkg/EmbeddedPkg.dec
   MdeModulePkg/MdeModulePkg.dec
   MT6765Pkg/MT6765Pkg.dec
+  ArmPkg/ArmPkg.dec
 
 [LibraryClasses]
   UefiDriverEntryPoint
@@ -24,6 +25,7 @@
   PcdLib
   UefiBootServicesTableLib
   TimerLib
+  ArmLib
 
 [Protocols]
   gEmbeddedMmcHostProtocolGuid

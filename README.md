@@ -1,9 +1,56 @@
 # Status
-Boots to UEFI Shell
 
-SimpleFbDxe is broken due to weird mtk fb, while FrameBufferSerialLib works fine
+Work in progress. Many things is broken. <br>
+It can boot image from *`\EFI\BOOT\BOOTAA64.efi`* in a FAT partiton(FAT32 tested), but it doesn't takes any sence right now;<br>
+GRUB booting tested, booting Image function partially works with `console=tty0 earlycon=simplefb,0x7ec50000 video=simplefb:on clk_ignore_unused pd_ignore_unused regulator_ignore_unused maxcpus=1 nosmp nokaslr panic=10` params only, because of broken interrupts<br>
+TODO: test the linux witta new fixes<br>
+tiny11 aa64 installer booted, broken fonts/bitmaps
 
-UART works too, but for it, you must first disable FrameBufferSerialLib in MT6765Pkg.dsc
+## TODO:
+- **~~MSDC0~~, MSDC1, ~~Block IO~~**; <br>
+- Make ~~GIC~~, SPI/SMBus work.;<br>
+- Make BDS see anything else except FAT
+- ~~Make GPIO buttons works as the keyboard arrow keys in a early state~~ (no sence)
+- ~~**Custom** *`bootaa64.efi`* **booting from EMMC**(TESTED);~~ <br>
+- ~~**Watchdog timer kicking/turning off properly**;~~ <br>
+- ~~MSDC0 DMA and switching from 50MHz to HS200 SDR(ddr is way too complicated >n<)~~
+- USB OTG Testing
+- UART Testing
+- ~~Normal ACPI Tables~~ and BGRT
+- SYSIRQ
+- GICv3 Mode
+- GPIO Test
+
+# Features: 
+| Feature  | Status | Description |
+| ------------- | ------------- | ------------------------------ |
+| Flashing |  Works | You can flash image via `fastboot flash boot [image.img]`. |
+| SimpleFB |  Partially | SimpleFBDxe works properly in a text mode. GOP works too. |
+| Logging |  Partially | FrameBufferSerialLib works, but coloring/ESC seqs are broken. |
+| EMMC |  Works | Works at 50MHz 8-bit SDR; DMA mode |
+| DDR | Works | Yep, now the memory map is fixed! |
+| SDMMC |  Not Tested | MSDC1?... idk |
+| SPI |  Broken | SPI code/driver is missing. |
+| I2C |  Broken | Same as a SPI. |
+| Touchscreen | Broken | There are no NT36xxx/FT8006S driver right now. |
+| BDS | Works | `BdsDxe` works smoothly. |
+| UEFI Shell | Works | Boots into UEFI shell. |
+| GPIO | Broken | Driver is missing. |
+| WDT | Works | WDT is turned off right now. |
+| SMBIOS | Works | SMBIOS tables succesful creating, fixed for the current device |
+| GIC/INTS | Broken | Probably works, EDKII GIC driver is on the enforced GICv2 mode |
+| SYSIRQ | Broken | ...This SoC has proprietary SYSIRQ Interrupt controller, idk what can I do... >_< |
+| etc. | ??? | no drivers... -_-|
+
+## ATTENTION
+The main target is a dandelion(2GB), it's not tested on a angelica/other 3-4gb ram garden/blossom devices are not recommended and I guess that it'll detect 2gb of ram only on them<br>
+flash ts at ur own risk, good luck =)
+
+
+
+### Issues
+EMMC DDR is not tested<br>
+Interrupts are broken. idk how to fix ts
 
 # Building
 First, clone EDK2:
@@ -11,9 +58,20 @@ First, clone EDK2:
 git clone https://github.com/tianocore/edk2 --recursive -b edk2-stable202302
 git clone https://github.com/tianocore/edk2-platforms.git
 ```
-First run `./firstrun.sh` <br>
-Then, `./build.sh` <br>
+First run `./firstrun.sh`; <br>
+Then, `./build.sh`  or `./baf.sh` for building and flasing;<br>
 This should make a boot-uefi.img to be flashed/booted via fastboot.
 
+# Notes
+* RTFM;
+* KISS;
+* DO NOT fake RCA/Response/CMD. (except fake r1)
+
 # Credits
-[edk2-exynos7885](https://github.com/sonic011gamer/edk2-exynos7885/) - I based this port on this tree
+[edk2-exynos7885](https://github.com/sonic011gamer/edk2-exynos7885/) - edk2-mt6765 <br>
+[edk2-mt6765](https://github.com/xiaomi-blossom-dev/edk2-mt6765) - forked <br>
+[edk2-mtk](https://github.com/linux-mediatek/edk2-mtk) - idea source, WDT turn off code
+
+### Feedback:<br>
+[EMAIL](mailto:emilermekov@national.shitposting.agency)<br>
+[Telegram](https://t.me/thiscoolworld)<br>

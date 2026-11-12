@@ -30,6 +30,9 @@
   FrameBufferBltLib
   CacheMaintenanceLib
 
+[Pcd]
+  gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferStride
+
 [Protocols]
   gEfiGraphicsOutputProtocolGuid ## PRODUCES
   gEfiCpuArchProtocolGuid

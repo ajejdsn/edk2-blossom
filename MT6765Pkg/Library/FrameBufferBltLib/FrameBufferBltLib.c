@@ -168,10 +168,7 @@ FrameBufferBltConfigure (
   CopyMem (&Configure->PixelMasks, BitMask, sizeof (*BitMask));
   CopyMem (Configure->PixelShl, PixelShl, sizeof (PixelShl));
   CopyMem (Configure->PixelShr, PixelShr, sizeof (PixelShr));
-  // TEST
-  //Configure->BytesPerPixel     = BytesPerPixel - (BytesPerPixel / 4);
-  //Configure->BytesPerPixel     = BytesPerPixel;
-  Configure->BytesPerPixel     = 5;
+  Configure->BytesPerPixel     = BytesPerPixel;
   Configure->PixelFormat       = FrameBufferInfo->PixelFormat;
   Configure->FrameBuffer       = (UINT8 *)FrameBuffer;
   Configure->Width             = FrameBufferInfo->HorizontalResolution;

@@ -26,5 +26,6 @@
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferWidth
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferHeight
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
+  gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferStride
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleWidth
   gMT6765PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleHeight

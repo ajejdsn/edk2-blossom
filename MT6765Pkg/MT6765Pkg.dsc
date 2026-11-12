@@ -1,6 +1,7 @@
 #
 #  Copyright (c) 2018, Linaro Limited. All rights reserved.
-#
+#  Copyright (c) 2026, Emil Ermekov(ajejdsn)<emilermekov@national.shitposting.agency>
+#  
 #  This program and the accompanying materials
 #  are licensed and made available under the terms and conditions of the BSD License
 #  which accompanies this distribution.  The full text of the license may be found at
@@ -30,9 +31,10 @@
 
 [LibraryClasses]
   RegisterFilterLib|MdePkg/Library/RegisterFilterLibNull/RegisterFilterLibNull.inf
+  
   VariablePolicyHelperLib|MdeModulePkg/Library/VariablePolicyHelperLib/VariablePolicyHelperLib.inf
   VariableFlashInfoLib|MdeModulePkg/Library/BaseVariableFlashInfoLib/BaseVariableFlashInfoLib.inf
-
+  ArmGicArchLib|ArmPkg/Library/ArmGicArchLib/ArmGicArchLib.inf
 [LibraryClasses.common.DXE_RUNTIME_DRIVER]
   VariablePolicyLib|MdeModulePkg/Library/VariablePolicyLib/VariablePolicyLibRuntimeDxe.inf
 
@@ -104,18 +106,21 @@
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"Alpha"
 
-  # We only boot one processor here!
+  # keep 1st win boottest singlecore till SMP will work
   gArmPlatformTokenSpaceGuid.PcdCoreCount|1
   gArmPlatformTokenSpaceGuid.PcdClusterCount|1
 
   #
   # ARM General Interrupt Controller
   #
-  gArmTokenSpaceGuid.PcdGicDistributorBase|0x0c000000
-  gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase|0x0c100000
+  gArmTokenSpaceGuid.PcdGicDistributorBase|0x0C000000
+  gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase|0x00000000
+  gArmTokenSpaceGuid.PcdGicRedistributorsBase|0x0C100000
 
-  gArmTokenSpaceGuid.PcdArmArchTimerIntrNum|0x12
-  gArmTokenSpaceGuid.PcdArmArchTimerVirtIntrNum|0x13
+  gArmTokenSpaceGuid.PcdArmArchTimerSecIntrNum|13
+  gArmTokenSpaceGuid.PcdArmArchTimerIntrNum|14
+  gArmTokenSpaceGuid.PcdArmArchTimerVirtIntrNum|11
+  gArmTokenSpaceGuid.PcdArmArchTimerHypIntrNum|10
 
   # GUID of the UI app
   gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile|{ 0x21, 0xaa, 0x2c, 0x46, 0x14, 0x76, 0x03, 0x45, 0x83, 0x6e, 0x8a, 0xb6, 0xf4, 0x66, 0x23, 0x31 }
@@ -206,6 +211,7 @@
   #
   MT6765Pkg/Drivers/MT6765PkgDxe/MT6765PkgDxe.inf
   MT6765Pkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+  MT6765Pkg/Drivers/Msdc0ProbeDxe/Msdc0ProbeDxe.inf
   MT6765Pkg/Drivers/LogoDxe/LogoDxe.inf
 
   #
@@ -233,6 +239,7 @@
   # FAT filesystem + GPT/MBR partitioning
   #
   MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
   MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
   MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
   FatPkg/EnhancedFatDxe/Fat.inf
@@ -242,7 +249,7 @@
   #
   MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
   MdeModulePkg/Universal/Acpi/AcpiPlatformDxe/AcpiPlatformDxe.inf
-  MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf
+  # MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf
   MT6765Pkg/AcpiTables/AcpiTables.inf
 
   #

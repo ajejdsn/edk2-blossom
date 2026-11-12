@@ -14,11 +14,16 @@ FBCON_POSITION m_Position;
 FBCON_POSITION m_MaxPosition;
 FBCON_COLOR m_Color;
 BOOLEAN m_Initialized = FALSE;
+STATIC BOOLEAN m_AnsiEscape = FALSE;
+STATIC BOOLEAN m_AnsiCsi = FALSE;
+STATIC BOOLEAN m_BracketCode = FALSE;
+STATIC BOOLEAN m_BracketPending = FALSE;
 
 UINTN gWidth = FixedPcdGet32(PcdMipiFrameBufferWidth);
 // Reserve half screen for output
 UINTN gHeight = FixedPcdGet32(PcdMipiFrameBufferHeight);
 UINTN gBpp = FixedPcdGet32(PcdMipiFrameBufferPixelBpp);
+UINTN gStride = FixedPcdGet32(PcdMipiFrameBufferStride);
 
 // Module-used internal routine
 void FbConPutCharWithFactor
@@ -40,6 +45,7 @@ void FbConDrawglyph
 void FbConReset(void);
 void FbConScrollUp(void);
 void FbConFlush(void);
+void ResetFb(void);
 
 RETURN_STATUS
 EFIAPI
@@ -58,6 +64,7 @@ SerialPortInitialize
 	ArmDisableInterrupts();
 
 	// Reset console
+	ResetFb();
 	FbConReset();
 
 	// Set flag
@@ -71,23 +78,10 @@ void ResetFb(void)
 {
 	// Clear current screen.
 	char* Pixels = (void*)FixedPcdGet32(PcdMipiFrameBufferAddress);
-	UINTN BgColor = FB_BGRA8888_BLACK;
 
 	// Set to black color.
-	for (UINTN i = 0; i < gWidth; i++)
-	{
-		for (UINTN j = 0; j < gHeight; j++)
-		{
-			BgColor = FB_BGRA8888_BLACK;
-			// Set pixel bit
-			for (UINTN p = 0; p < (gBpp / 8); p++)
-			{
-				*Pixels = (unsigned char)BgColor;
-				BgColor = BgColor >> 8;
-				Pixels++;
-			}
-		}
-	}
+	for (UINTN i = 0; i < gStride * gHeight; i++)
+		Pixels[i] = 0;
 }
 
 void FbConReset(void)
@@ -147,12 +141,12 @@ paint:
 	ArmDisableInterrupts();
 
 	Pixels = (void*)FixedPcdGet32(PcdMipiFrameBufferAddress);
-	Pixels += m_Position.y * ((gBpp / 8) * FONT_HEIGHT * gWidth);
+	Pixels += m_Position.y * ((gStride) * FONT_HEIGHT);
 	Pixels += m_Position.x * scale_factor * ((gBpp / 8) * (FONT_WIDTH + 1));
 
 	FbConDrawglyph(
 		Pixels,
-		gWidth,
+		gStride / (gBpp / 8),
 		(gBpp / 8),
 		font5x12 + (c - 32) * 2,
 		scale_factor);
@@ -341,11 +335,11 @@ void FbConFlush(void)
 
 	total_x = gWidth;
 	total_y = gHeight;
-	bytes_per_bpp = (gBpp / 8);
+	bytes_per_bpp = gStride;
 
 	WriteBackInvalidateDataCacheRange(
 		(void*)FixedPcdGet32(PcdMipiFrameBufferAddress),
-		(total_x * total_y * bytes_per_bpp)
+		(bytes_per_bpp * total_y)
 	);
 }
 
@@ -363,7 +357,52 @@ SerialPortWrite
 
 	while (Buffer < Final)
 	{
-		FbConPutCharWithFactor(*Buffer++, FBCON_COMMON_MSG, SCALE_FACTOR);
+		UINT8 c = *Buffer++;
+
+		if (m_BracketPending) {
+			m_BracketPending = FALSE;
+			if ((c >= '0' && c <= '9') || c == '?' || c == '>' || c == ';') {
+				m_BracketCode = TRUE;
+				continue;
+			}
+			FbConPutCharWithFactor('[', FBCON_COMMON_MSG, SCALE_FACTOR);
+			/* Process the current character normally below. */
+		}
+
+		/* Some producers omit ESC; still consume raw [..X sequences. */
+		if (m_BracketCode) {
+			if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+				m_BracketCode = FALSE;
+			continue;
+		}
+		if (c == '[') {
+			m_AnsiEscape = FALSE;
+			m_AnsiCsi = FALSE;
+			m_BracketPending = TRUE;
+			continue;
+		}
+
+		/* Consume ANSI/CSI terminal sequences, e.g. ESC[31m. */
+		if (m_AnsiEscape) {
+			if (!m_AnsiCsi) {
+				m_AnsiCsi = (c == '[');
+				if (!m_AnsiCsi)
+					m_AnsiEscape = FALSE;
+				continue;
+			}
+			if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+				m_AnsiEscape = FALSE;
+				m_AnsiCsi = FALSE;
+			}
+			continue;
+		}
+		if (c == 0x1b) {
+			m_AnsiEscape = TRUE;
+			m_AnsiCsi = FALSE;
+			continue;
+		}
+
+		FbConPutCharWithFactor(c, FBCON_COMMON_MSG, SCALE_FACTOR);
 	}
 
 	if (InterruptState) ArmEnableInterrupts();

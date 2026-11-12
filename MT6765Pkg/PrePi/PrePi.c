@@ -27,6 +27,13 @@ VOID EFIAPI ProcessLibraryConstructorList(VOID);
 char* uart_reg0 = (char*)0x11002000;
 char* uart_reg1 = (char*)0x11002014;
 
+volatile UINT32* wdt_reg = (volatile UINT32*)0x10007000;
+
+VOID DisableWDT()
+{
+  *wdt_reg = 0x22000000;
+}
+
 void PrintUart(char* str) {
     char c = str[0];
     int i = 0;
@@ -136,5 +143,6 @@ VOID
 CEntryPoint ()
 {
   UartInit();
+  DisableWDT();
   Main(0);
 }

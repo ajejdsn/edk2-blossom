@@ -14,20 +14,12 @@
 #include <Uefi.h>
 
 /// Defines
-/*
- * Convert enum video_log2_bpp to bytes and bits. Note we omit the outer
- * brackets to allow multiplication by fractional pixels.
- */
 #define VNBYTES(bpix) (1 << (bpix)) / 8
 #define VNBITS(bpix) (1 << (bpix))
 
 #define FB_BITS_PER_PIXEL (32)
 #define FB_BYTES_PER_PIXEL (FB_BITS_PER_PIXEL / 8)
 
-/*
- * Bits per pixel selector. Each value n is such that the bits-per-pixel is
- * 2 ^ n
- */
 enum video_log2_bpp {
   VIDEO_BPP1 = 0,
   VIDEO_BPP2,
@@ -128,9 +120,25 @@ DisplayBlt(
     IN UINTN DestinationY, IN UINTN Width, IN UINTN Height,
     IN UINTN Delta OPTIONAL)
 {
-
   RETURN_STATUS Status;
   EFI_TPL       Tpl;
+
+  // ajejdsn: fixup
+  if (BltBuffer != NULL && BltOperation == EfiBltBufferToVideo) { // fb exists? @o@
+    // Delta = row size in byte; if 0, then Width * 4.
+    UINTN RowStrideBytes = (Delta != 0) ? Delta : (Width * sizeof(EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
+    UINT8 *BufferPtr = (UINT8 *)BltBuffer;
+
+    for (UINTN y = 0; y < Height; y++) {
+      EFI_GRAPHICS_OUTPUT_BLT_PIXEL *RowPixels = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)BufferPtr;
+      for (UINTN x = 0; x < Width; x++) {
+        RowPixels[x].Reserved = 0xFF; // no alpha =3
+      }
+      BufferPtr += RowStrideBytes; // roll with delta
+    }
+  }
+  // ajejdsn: fix end
+
   //
   // We have to raise to TPL_NOTIFY, so we make an atomic write to the frame
   // buffer. We would not want a timer based event (Cursor, ...) to come in
@@ -200,7 +208,7 @@ SimpleFbDxeInitialize(
 
   mDisplay.Mode->Info->PixelsPerScanLine = LineLength / FB_BYTES_PER_PIXEL;
   
-  // set to default PixelBlueGreenRedReserved8BitPerColor 
+  // set to def PixelBlueGreenRedReserved8BitPerColor 
   mDisplay.Mode->Info->PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
 
   mDisplay.Mode->SizeOfInfo      = sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION);

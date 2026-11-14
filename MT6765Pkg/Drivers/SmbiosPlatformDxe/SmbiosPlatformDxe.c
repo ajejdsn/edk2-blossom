@@ -32,16 +32,16 @@
   __DATE__"\0"                         /* BiosReleaseDate */
 
 #define TYPE1_STRINGS                                   \
-  "Google\0"                         /* Manufacturer */ \
-  "Pixel 3 XL\0"                     /* Product Name */ \
+  "Xiaomi\0"                         /* Manufacturer */ \
+  "Redmi 9A\0"                       /* Product Name */ \
   "None\0"                           /* Version */      \
   "                    \0"           /* 20 character buffer */
 
 #define TYPE2_STRINGS                                     \
-  "Google\0"                         /* Manufacturer */   \
-  "Pixel 3 XL\0"                     /* Product Name */   \
+  "Xiaomi\0"                         /* Manufacturer */   \
+  "dandelion\0"                      /* Product Name */   \
   "R0\0"                             /* Version */        \
-  "Serial Not Set\0"                 /* Serial */         \
+  "0123DEADBEEF\0"                 /* Serial */         \
   "Base of Chassis\0"                /* board location */ \
   "R1\0"                             /* Version */        \
   "R2\0"                             /* Version */
@@ -805,23 +805,14 @@ InstallAllStructures (
   Status=InstallStructures (Smbios,ExtraTables);
   ASSERT_EFI_ERROR (Status);
 
-  // Generate memory descriptors for the two memory ranges we know about
+
   Status = InstallMemoryStructure ( Smbios, PcdGet64 (PcdSystemMemoryBase), PcdGet64 (PcdSystemMemorySize));
   ASSERT_EFI_ERROR (Status);
 
   return Status;
 }
 
-/**
-   Installs SMBIOS information for ARM platforms
 
-   @param ImageHandle     Module's image handle
-   @param SystemTable     Pointer of EFI_SYSTEM_TABLE
-
-   @retval EFI_SUCCESS    Smbios data successfully installed
-   @retval Other          Smbios data was not installed
-
-**/
 EFI_STATUS
 EFIAPI
 SmbiosTablePublishEntry (
@@ -832,9 +823,7 @@ SmbiosTablePublishEntry (
   EFI_STATUS                Status;
   EFI_SMBIOS_PROTOCOL       *Smbios;
 
-  //
-  // Find the SMBIOS protocol
-  //
+
   Status = gBS->LocateProtocol (
     &gEfiSmbiosProtocolGuid,
     NULL,

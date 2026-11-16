@@ -1,4 +1,3 @@
-# SimpleFbDxe.inf: Implements Simple FrameBuffer in UEFI.
 
 [Defines]
   INF_VERSION                    = 0x00010005
@@ -26,6 +25,7 @@
   UefiDriverEntryPoint
   BaseMemoryLib
   DebugLib
+  IoLib
   PcdLib
   FrameBufferBltLib
   CacheMaintenanceLib

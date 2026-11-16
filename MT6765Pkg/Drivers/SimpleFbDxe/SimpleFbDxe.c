@@ -1,10 +1,9 @@
-/* SimpleFbDxe: Simple FrameBuffer */
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
-#include <Library/CacheMaintenanceLib.h>
 #include <Library/DebugLib.h>
 #include <Library/DxeServicesTableLib.h>
 #include "Library/FrameBufferBltLib.h"
+#include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -19,6 +18,10 @@
 
 #define FB_BITS_PER_PIXEL (32)
 #define FB_BYTES_PER_PIXEL (FB_BITS_PER_PIXEL / 8)
+
+// MT6765 DISP_OVL0 layer-0 pitch reg; BIT28 enables const blend so panel pipeline ignores framebuffers byt3 as a pixel alphachan
+#define MT6765_DISP_OVL0_PITCH0  (0x1400B000U + 0x44U)
+#define MT6765_OVL_CONST_BLEND   (1U << 28)
 
 enum video_log2_bpp {
   VIDEO_BPP1 = 0,
@@ -50,6 +53,7 @@ DISPLAY_DEVICE_PATH mDisplayDevicePath = {
 
 STATIC FRAME_BUFFER_CONFIGURE *mFrameBufferBltLibConfigure;
 STATIC UINTN                   mFrameBufferBltLibConfigureSize;
+STATIC UINT32                  mFrameBufferPixelsPerScanLine;
 
 STATIC
 EFI_STATUS
@@ -78,6 +82,18 @@ STATIC EFI_GRAPHICS_OUTPUT_PROTOCOL mDisplay = {
     DisplayQueryMode, DisplaySetMode, DisplayBlt, NULL};
 
 STATIC
+VOID
+DisplayDisablePixelAlpha (
+    VOID
+    )
+{
+  MmioOr32 (MT6765_DISP_OVL0_PITCH0, MT6765_OVL_CONST_BLEND);
+  DEBUG ((EFI_D_INFO,
+          "SimpleFbDxe: OVL0 constant blend enabled at 0x%08x\n",
+          MT6765_DISP_OVL0_PITCH0));
+}
+
+STATIC
 EFI_STATUS
 EFIAPI
 DisplayQueryMode(
@@ -85,17 +101,28 @@ DisplayQueryMode(
     OUT UINTN *SizeOfInfo, OUT EFI_GRAPHICS_OUTPUT_MODE_INFORMATION **Info)
 {
   EFI_STATUS Status;
+
+  if (This == NULL || This->Mode == NULL || SizeOfInfo == NULL || Info == NULL ||
+      ModeNumber >= This->Mode->MaxMode) {
+    return EFI_INVALID_PARAMETER;
+  }
+
   Status = gBS->AllocatePool(
       EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION),
       (VOID **)Info);
 
-  ASSERT_EFI_ERROR(Status);
+  if (EFI_ERROR(Status)) {
+    return Status;
+  }
 
   *SizeOfInfo                   = sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION);
   (*Info)->Version              = This->Mode->Info->Version;
   (*Info)->HorizontalResolution = This->Mode->Info->HorizontalResolution;
   (*Info)->VerticalResolution   = This->Mode->Info->VerticalResolution;
   (*Info)->PixelFormat          = This->Mode->Info->PixelFormat;
+  CopyMem (&(*Info)->PixelInformation,
+           &This->Mode->Info->PixelInformation,
+           sizeof (EFI_PIXEL_BITMASK));
   (*Info)->PixelsPerScanLine    = This->Mode->Info->PixelsPerScanLine;
 
   return EFI_SUCCESS;
@@ -106,6 +133,11 @@ EFI_STATUS
 EFIAPI
 DisplaySetMode(IN EFI_GRAPHICS_OUTPUT_PROTOCOL *This, IN UINT32 ModeNumber)
 {
+  if (This == NULL || This->Mode == NULL || ModeNumber >= This->Mode->MaxMode) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  This->Mode->Mode = ModeNumber;
   return EFI_SUCCESS;
 }
 
@@ -123,21 +155,10 @@ DisplayBlt(
   RETURN_STATUS Status;
   EFI_TPL       Tpl;
 
-  // ajejdsn: fixup
-  if (BltBuffer != NULL && BltOperation == EfiBltBufferToVideo) { // fb exists? @o@
-    // Delta = row size in byte; if 0, then Width * 4.
-    UINTN RowStrideBytes = (Delta != 0) ? Delta : (Width * sizeof(EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
-    UINT8 *BufferPtr = (UINT8 *)BltBuffer;
-
-    for (UINTN y = 0; y < Height; y++) {
-      EFI_GRAPHICS_OUTPUT_BLT_PIXEL *RowPixels = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)BufferPtr;
-      for (UINTN x = 0; x < Width; x++) {
-        RowPixels[x].Reserved = 0xFF; // no alpha =3
-      }
-      BufferPtr += RowStrideBytes; // roll with delta
-    }
+  // Do not modify BltBuffer, the Reserved byte is not an alpha channel in GOP pixel format and changing it here corrupts callers buffers
+  if (mFrameBufferBltLibConfigure == NULL) {
+    return EFI_NOT_READY;
   }
-  // ajejdsn: fix end
 
   //
   // We have to raise to TPL_NOTIFY, so we make an atomic write to the frame
@@ -148,13 +169,8 @@ DisplayBlt(
   Status = FrameBufferBlt(
       mFrameBufferBltLibConfigure, BltBuffer, BltOperation, SourceX, SourceY,
       DestinationX, DestinationY, Width, Height, Delta);
-  gBS->RestoreTPL(Tpl);
 
-  // zhuowei: hack: flush the cache manually since my memory maps are still
-  // broken
-  // WriteBackInvalidateDataCacheRange(
-      // (void *)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->FrameBufferSize);
-  // zhuowei: end hack
+  gBS->RestoreTPL(Tpl);
 
   return RETURN_ERROR(Status) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
 }
@@ -203,12 +219,23 @@ SimpleFbDxeInitialize(
   mDisplay.Mode->Info->HorizontalResolution = MipiFrameBufferWidth;
   mDisplay.Mode->Info->VerticalResolution   = MipiFrameBufferHeight;
 
-  UINT32 LineLength       = FixedPcdGet32(PcdMipiFrameBufferStride);
-  UINT32 FrameBufferSize  = LineLength * MipiFrameBufferHeight;
+  UINT32 LineLength = FixedPcdGet32(PcdMipiFrameBufferStride);
+  UINT64 MinimumLineLength = (UINT64)MipiFrameBufferWidth * FB_BYTES_PER_PIXEL;
 
-  mDisplay.Mode->Info->PixelsPerScanLine = LineLength / FB_BYTES_PER_PIXEL;
-  
-  // set to def PixelBlueGreenRedReserved8BitPerColor 
+  if (LineLength == 0 || (UINT64)LineLength < MinimumLineLength) {
+    DEBUG((EFI_D_ERROR,
+           "SimpleFbDxe: Invalid stride %u for width %u\n",
+           LineLength,
+           MipiFrameBufferWidth));
+    return EFI_DEVICE_ERROR;
+  }
+
+  UINTN FrameBufferSize = (UINTN)LineLength * MipiFrameBufferHeight;
+
+  mFrameBufferPixelsPerScanLine = LineLength / FB_BYTES_PER_PIXEL;
+  mDisplay.Mode->Info->PixelsPerScanLine = mFrameBufferPixelsPerScanLine;
+
+  // platform fb is laid out as BGRA8888 in a memory
   mDisplay.Mode->Info->PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
 
   mDisplay.Mode->SizeOfInfo      = sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION);
@@ -221,13 +248,21 @@ SimpleFbDxeInitialize(
       mFrameBufferBltLibConfigure, &mFrameBufferBltLibConfigureSize);
   if (Status == RETURN_BUFFER_TOO_SMALL) {
     mFrameBufferBltLibConfigure = AllocatePool(mFrameBufferBltLibConfigureSize);
-    if (mFrameBufferBltLibConfigure != NULL) {
-      Status = FrameBufferBltConfigure(
-          (VOID *)(UINTN)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->Info,
-          mFrameBufferBltLibConfigure, &mFrameBufferBltLibConfigureSize);
+    if (mFrameBufferBltLibConfigure == NULL) {
+      return EFI_OUT_OF_RESOURCES;
     }
+
+    Status = FrameBufferBltConfigure(
+        (VOID *)(UINTN)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->Info,
+        mFrameBufferBltLibConfigure, &mFrameBufferBltLibConfigureSize);
   }
-  ASSERT_EFI_ERROR(Status);
+  if (RETURN_ERROR(Status)) {
+    DEBUG((EFI_D_ERROR, "SimpleFbDxe: FrameBufferBltConfigure failed: %r\n", Status));
+    return EFI_DEVICE_ERROR;
+  }
+
+  // garden uses DISP_OVL0 for fb layer; if pix alpha blending remains enabled, Win10/11 can be rendered transparent by alpha byte even though the GOP format is otherwise correct
+  DisplayDisablePixelAlpha ();
 
   /* Register handle */
   Status = gBS->InstallMultipleProtocolInterfaces(

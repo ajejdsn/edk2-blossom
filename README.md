@@ -4,7 +4,7 @@ Work in progress. Many things is broken. <br>
 It can boot image from *`\EFI\BOOT\BOOTAA64.efi`* in a FAT partiton(FAT32 tested), but it doesn't takes any sence right now;<br>
 GRUB booting tested, booting Image function partially works with `console=tty0 earlycon=simplefb,0x7ec50000 video=simplefb:on clk_ignore_unused pd_ignore_unused regulator_ignore_unused maxcpus=1 nosmp nokaslr panic=10` params only, because of broken interrupts<br>
 TODO: test the linux witta new fixes<br>
-tiny11 aa64 installer booted, broken fonts/bitmaps
+tiny11 aa64 installer booted, win 10 too, need to port touch panel driver from nabu &| fix sysirq
 
 ## TODO:
 - **~~MSDC0~~, MSDC1, ~~Block IO~~**; <br>
@@ -43,13 +43,13 @@ tiny11 aa64 installer booted, broken fonts/bitmaps
 | etc. | ??? | no drivers... -_-|
 
 ## ATTENTION
-The main target is a dandelion(2GB), it's not tested on a angelica/other 3-4gb ram garden/blossom devices are not recommended and I guess that it'll detect 2gb of ram only on them<br>
+The main target is a dandelion(2GB), it's not tested on a angelica/other 3-4gb ram garden/blossom devices and they're are not recommended and I guess that it'll detect 2gb of ram only on them<br>
 flash ts at ur own risk, good luck =)
 
 
 
 ### Issues
-EMMC DDR is not tested<br>
+EMMC DDR is way too complex >n< <br>
 Interrupts are broken. idk how to fix ts
 
 # Building
@@ -58,8 +58,8 @@ First, clone EDK2:
 git clone https://github.com/tianocore/edk2 --recursive -b edk2-stable202302
 git clone https://github.com/tianocore/edk2-platforms.git
 ```
-First run `./firstrun.sh`; <br>
-Then, `./build.sh`  or `./baf.sh` for building and flasing;<br>
+Run `./firstrun.sh`; <br>
+Then, `./build.sh` for building or `./baf.sh` for building and flasing;<br>
 This should make a boot-uefi.img to be flashed/booted via fastboot.
 
 # Notes
@@ -73,5 +73,5 @@ This should make a boot-uefi.img to be flashed/booted via fastboot.
 [edk2-mtk](https://github.com/linux-mediatek/edk2-mtk) - idea source, WDT turn off code
 
 ### Feedback:<br>
-[EMAIL](mailto:emilermekov@national.shitposting.agency)<br>
+EMAIL: [emilermekov@national.shitposting.agency](mailto:emilermekov@national.shitposting.agency)<br>
 [Telegram](https://t.me/thiscoolworld)<br>

@@ -1,5 +1,7 @@
 # 
 #  Copyright (c) 2018, Linaro Limited. All rights reserved. 
+#
+#  Copyright (c) 2026, Emil Ermekov(ajejdsn) <emilermekov@national.shitposting.agency>
 # 
 #  This program and the accompanying materials 
 #  are licensed and made available under the terms and conditions of the BSD License 
@@ -26,12 +28,12 @@
  
 [FD.MT6765PKG_UEFI] 
 BaseAddress   = 0x50000000|gArmTokenSpaceGuid.PcdFdBaseAddress  # The base address of the Firmware in NOR Flash. 
-Size          = 0x00200000|gArmTokenSpaceGuid.PcdFdSize         # The size in bytes of the FLASH Device 
+Size          = 0x01000000|gArmTokenSpaceGuid.PcdFdSize         # The size in bytes of the FLASH Device 
 ErasePolarity = 1 
  
 # This one is tricky, it must be: BlockSize * NumBlocks = Size 
 BlockSize     = 0x00001000 
-NumBlocks     = 0x200 
+NumBlocks     = 0x1000 
  
 ################################################################################ 
 # 
@@ -54,7 +56,7 @@ NumBlocks     = 0x200
 # Implement the Linux kernel header layout so that the loader will identify 
 # it as something bootable, and execute it with a FDT pointer in x0 or r2. 
 # 
-0x00000000|0x00200000 
+0x00000000|0x01000000 
 gArmTokenSpaceGuid.PcdFvBaseAddress|gArmTokenSpaceGuid.PcdFvSize 
 FV = FVMAIN_COMPACT 
  
@@ -181,7 +183,7 @@ READ_LOCK_STATUS   = TRUE
   # 
   INF MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf 
   INF MdeModulePkg/Universal/Acpi/AcpiPlatformDxe/AcpiPlatformDxe.inf 
- # INF MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf 
+  INF MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf 
   INF RuleOverride = ACPITABLE MT6765Pkg/AcpiTables/AcpiTables.inf 
  
   # 

@@ -74,7 +74,7 @@ FV = FVMAIN_COMPACT
  
 [FV.FvMain] 
 BlockSize          = 0x40 
-NumBlocks          = 0         # This FV gets compressed so make it just big enough 
+NumBlocks          = 0x40000         # This FV gets compressed so make it just big enough 
 FvAlignment        = 8         # FV alignment and FV attributes setting. 
 ERASE_POLARITY     = 1 
 MEMORY_MAPPED      = TRUE 

@@ -1,3 +1,4 @@
+
 ARCH              = arm64
 TARGET            = aarch64-linux-gnu
 CROSS_COMPILE     = $(TARGET)-
@@ -10,6 +11,10 @@ BootShim.bin: BootShim.elf
 	$(OBJCOPY) -O binary $< $@
 
 BootShim.elf: BootShim.S
-	$(CC) -c $< -o $@ -DUEFI_BASE=$(UEFI_BASE) -DUEFI_SIZE=$(UEFI_SIZE)
+	$(CC) -c $< -o $@ -DUEFI_BASE=$(UEFI_BASE) -DUEFI_SIZE=$(UEFI_SIZE) -DFB_BASE=$(FB_BASE)
 
-BootShim.S:
+clean:
+	rm -f BootShim.elf BootShim.bin
+
+.PHONY: all clean
+

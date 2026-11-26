@@ -9,7 +9,7 @@ tiny11 aa64 installer booted, win 10 too, need to port touch panel driver from n
 ## TODO:
 - **~~MSDC0~~, MSDC1, ~~Block IO~~**; <br>
 - Make ~~GIC~~, SPI/SMBus work.;<br>
-- Make BDS see anything else except FAT
+- Make BDS see anything else except FAT, idk how and probably its useless _^-^_
 - ~~Make GPIO buttons works as the keyboard arrow keys in a early state~~ (no sence)
 - ~~**Custom** *`bootaa64.efi`* **booting from EMMC**(TESTED);~~ <br>
 - ~~**Watchdog timer kicking/turning off properly**;~~ <br>
@@ -58,6 +58,8 @@ First, clone EDK2:
 git clone https://github.com/tianocore/edk2 --recursive -b edk2-stable202302
 git clone https://github.com/tianocore/edk2-platforms.git
 ```
+Deps:
+iasl gcc-aarch64-linux-gnu fastboot adb uuid-dev mkbootimg git
 Run `./firstrun.sh`; <br>
 Then, `./build.sh` for building or `./baf.sh` for building and flasing;<br>
 This should make a boot-uefi.img to be flashed/booted via fastboot.
